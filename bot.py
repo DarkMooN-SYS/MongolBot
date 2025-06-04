@@ -29,15 +29,17 @@ intents.members = True
 intents.presences = True
 intents.message_content = True
 
-# Bot prefix
-prefix = ">"
+# Bot prefix хэсгийг хасах
+# prefix = ">"
 
-# Create bot instance
-async def get_prefix(bot: commands.Bot, message: discord.Message):
-    return [prefix.lower(), prefix.upper()]  # Том жижиг үсэг ялгахгүйгээр 2 хувилбараар буцаана
-
+# Bot үүсгэх хэсгийг өөрчлөх
 activity = discord.Activity(type=discord.ActivityType.playing, name="mhelp")
-bot = commands.Bot(command_prefix=get_prefix, case_insensitive=True, intents=intents, activity=activity)
+bot = commands.Bot(
+    command_prefix=settings.get_prefix,  # settings.py-с prefix авах
+    case_insensitive=True, 
+    intents=intents, 
+    activity=activity
+)
 
 bot.owner_id = 751055793893146624  # Change this to your Discord ID
 
@@ -54,7 +56,7 @@ async def on_ready():
     # Когуудыг ачаалах
     extensions = ['vip', 'report', 'admin', 'fun', 'birthday', 'giveaway', 'horseracing', 
                   'help', 'Owner', 'buh', 'economy', 'bank', 'game', 'suggest', 'count',
-                  'support']
+                  'support', 'channel']
 
     # Бусад когиудыг ачаалах
     for extension in extensions:
@@ -178,14 +180,14 @@ async def list_guilds(ctx: commands.Context):
 async def set_prefix_command(ctx: commands.Context, new_prefix: str):
     """Серверийн command prefix-ийг өөрчлөх"""
     try:
+        if ctx.guild is None:
+            await ctx.send("Энэ командыг зөвхөн сервер дээр ашиглаж болно.")
+            return
+
         # Шинэ префиксийг хадгалах
         result = await settings.set_prefix(ctx.guild.id, new_prefix)
         
-        # Глобал prefix хувьсагчийг шинэчлэх
-        global prefix
-        prefix = new_prefix
-        
-        # Амжилттай өөрчлөгдсөн тухай мэдэгдэх
+        # Embed message илгээх
         embed = discord.Embed(
             title="✅ Префикс амжилттай өөрчлөгдлөө!",
             description=f"Шинэ префикс: `{new_prefix}`",
