@@ -1,44 +1,80 @@
-import discord
+import discord 
+from discord import app_commands
 from discord.ext import commands
 
-# Check if the user has admin permissions
-def is_admin():
-    async def predicate(ctx):
-        return ctx.author.guild_permissions.administrator
-    return commands.check(predicate)
-
 class Admin(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
-            
-    @commands.command(name='post')
-    @commands.has_permissions(administrator=True)  # Only allow admins to use this command
-    async def announce(self, ctx, channel: discord.TextChannel, *, message: str):
-        """Send an announcement to a specified channel with emojis."""
+
+    @app_commands.command(name="post", description="Зарлал илгээх")
+    @app_commands.describe(
+        channel="Зарлал илгээх суваг",
+        title="Зарлалын гарчиг", 
+        message="Зарлалын үндсэн текст"
+    )
+    @app_commands.checks.has_permissions(administrator=True, manage_messages=True)
+    async def post(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.TextChannel,
+        title: str,
+        message: str
+    ):
+        # Check if user has required permissions in target channel
+        member = interaction.user if isinstance(interaction.user, discord.Member) else interaction.guild.get_member(interaction.user.id)
+        if not member or not channel.permissions_for(member).send_messages:
+            await interaction.response.send_message(
+                "❌ Танд сонгосон суваг руу зарлал илгээх эрх байхгүй байна.",
+                ephemeral=True
+            )
+            return
+
         try:
             # Create an embed for the announcement
-            embed = discord.Embed(title="📢 ЗАРЛАЛ", description=message, color=0x00ff00)
-            embed.set_footer(text=f"Зарлал гаргасан: {ctx.author.display_name}", icon_url=ctx.author.avatar.url)
+            embed = discord.Embed(
+                title=f"📢 {title}",
+                description=message,
+                color=0x00ff00
+            )
+            embed.set_footer(
+                text=f"Мэдэгдэл гаргасан: {interaction.user.display_name}",
+                icon_url=interaction.user.avatar.url if interaction.user.avatar else None
+            )
 
-            # Send the announcement to the specified channel
-            await channel.send(f"||@everyone|| sorry for ping", embed=embed)
-            await ctx.send(f"Зарлал амжилттай {channel.mention} суваг руу илгээгдлээ!")
-        
+            # Send the announcement
+            await channel.send("||@everyone|| Sorry For Ping", embed=embed)
+            await interaction.response.send_message(
+                f"✅ Мэдэгдэл амжилттай {channel.mention} суваг руу илгээгдлээ!",
+                ephemeral=True
+            )
+
         except discord.Forbidden:
-            await ctx.send("Энэ суваг руу илгээх эрхгүй байна.")
-        except discord.HTTPException:
-            await ctx.send("Зарлал илгээхэд алдаа гарлаа. Дахин оролдоно уу.")
+            await interaction.response.send_message(
+                "❌ Ботод энэ суваг руу илгээх эрх байхгүй байна.",
+                ephemeral=True
+            )
         except Exception as e:
-            await ctx.send(f"Алдаа гарлаа: {str(e)}")
+            await interaction.response.send_message(
+                f"❌ Алдаа гарлаа: {str(e)}",
+                ephemeral=True
+            )
 
-    @announce.error
-    async def announce_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("Танд энэ командыг ашиглах эрх байхгүй.")
-        elif isinstance(error, commands.BadArgument):
-            await ctx.send("Суваг олоход алдаа гарлаа. Суваг ID эсвэл @Mention ашиглана уу.")
-        elif isinstance(error, commands.MissingRequiredArgument):
-            await ctx.send("Суваг болон зарлалын текстийг оруулах хэрэгтэй.")
+    @post.error
+    async def post_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError):
+        if isinstance(error, app_commands.MissingPermissions):
+            missing_perms = [perm.replace('_', ' ').title() for perm in error.missing_permissions]
+            await interaction.response.send_message(
+                f"❌ Танд дараах эрхүүд байхгүй байна:\n" + 
+                "\n".join(f"• {perm}" for perm in missing_perms),
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                f"❌ Алдаа гарлаа: {str(error)}",
+                ephemeral=True
+            )
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Admin(bot))
+    # Sync the commands with Discord
+    await bot.tree.sync()
