@@ -10,8 +10,7 @@ import sqlite3
 import time
 from discord.ext import commands
 import random
-from channel import globally_block_disabled_channels
-
+import settings
 
 # Load environment variables
 load_dotenv()
@@ -31,20 +30,28 @@ intents.presences = True
 intents.message_content = True
 
 # Bot prefix
-prefix = "M"
+prefix = ">"
 
 # Create bot instance
-async def get_prefix(bot, message):
+async def get_prefix(bot: commands.Bot, message: discord.Message):
     return [prefix.lower(), prefix.upper()]  # Том жижиг үсэг ялгахгүйгээр 2 хувилбараар буцаана
 
 activity = discord.Activity(type=discord.ActivityType.playing, name="mhelp")
 bot = commands.Bot(command_prefix=get_prefix, case_insensitive=True, intents=intents, activity=activity)
-bot.add_check(globally_block_disabled_channels)
 
 bot.owner_id = 751055793893146624  # Change this to your Discord ID
 
 @bot.event
 async def on_ready():
+    # Префикс системийг эхлүүлэх
+    try:
+        await settings.init_db()  # Датабааз үүсгэх
+        await settings.load_prefixes()  # Префиксүүдийг ачаалах
+        logger.info("✅ Префикс систем амжилттай эхэллээ")
+    except Exception as e:
+        logger.error(f"❌ Префикс систем эхлүүлэхэд алдаа гарлаа: {e}")
+
+    # Когуудыг ачаалах
     extensions = ['vip', 'report', 'admin', 'fun', 'birthday', 'giveaway', 'horseracing', 
                   'help', 'Owner', 'buh', 'economy', 'bank', 'game', 'suggest', 'count',
                   'support']
@@ -57,8 +64,10 @@ async def on_ready():
         except Exception as e:
             logging.error(f"🚨 Ачаалж чадсангүй: {extension} - {e}")
 
+    logger.info(f"✅ {bot.user} амжилттай холбогдлоо!")
+
 @bot.event
-async def on_command_error(ctx, error):
+async def on_command_error(ctx: commands.Context, error: Exception):
     if isinstance(error, commands.CommandNotFound):
         return
     elif isinstance(error, commands.MissingRequiredArgument):
@@ -80,7 +89,7 @@ bot.remove_command("help")
 # Define the dm command
 @bot.command(name='dm')
 @commands.cooldown(1, 5, commands.BucketType.user)
-async def dm(ctx, target: str, *, message: str):
+async def dm(ctx: commands.Context, target: str, *, message: str):
     """Хэрэглэгчийн ID, суваг ID, эсвэл суваг дурдах ашиглан мессеж илгээх"""
     try:
         # Хэрэглэгч эсвэл суваг шалгах
@@ -93,8 +102,8 @@ async def dm(ctx, target: str, *, message: str):
                 # Хэрэглэгч рүү DM илгээх
                 await user.send(message)
                 confirmation = await ctx.send(f"Мессеж {user.name} рүү амжилттай илгээгдлээ.")
-            elif channel:
-                # Суваг руу мессеж илгээх
+            elif channel and isinstance(channel, discord.TextChannel):
+                # Зөвхөн TextChannel бол мессеж илгээх
                 await channel.send(message)
                 confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
             else:
@@ -103,7 +112,7 @@ async def dm(ctx, target: str, *, message: str):
             # Суваг дурдах ашигласан тохиолдолд
             channel_id = int(target.strip("<#>"))
             channel = bot.get_channel(channel_id)
-            if channel:
+            if channel and isinstance(channel, discord.TextChannel):
                 await channel.send(message)
                 confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
             else:
@@ -132,7 +141,7 @@ async def dm(ctx, target: str, *, message: str):
 # Command to list all guilds the bot is in and send invite links
 @bot.command(name='list_guilds')
 @commands.is_owner()
-async def list_guilds(ctx):
+async def list_guilds(ctx: commands.Context):
     if bot.guilds:
         response_lines = []
         for guild in bot.guilds:
@@ -166,8 +175,37 @@ async def list_guilds(ctx):
 
 @bot.command(name='setprefix')
 @commands.has_permissions(administrator=True)
-async def set_prefix_command(ctx, new_prefix: str):
-    await ctx.send(f"Command prefix set to {new_prefix}")
+async def set_prefix_command(ctx: commands.Context, new_prefix: str):
+    """Серверийн command prefix-ийг өөрчлөх"""
+    try:
+        # Шинэ префиксийг хадгалах
+        result = await settings.set_prefix(ctx.guild.id, new_prefix)
+        
+        # Глобал prefix хувьсагчийг шинэчлэх
+        global prefix
+        prefix = new_prefix
+        
+        # Амжилттай өөрчлөгдсөн тухай мэдэгдэх
+        embed = discord.Embed(
+            title="✅ Префикс амжилттай өөрчлөгдлөө!",
+            description=f"Шинэ префикс: `{new_prefix}`",
+            color=discord.Color.green()
+        )
+        embed.set_footer(text=f"🛠️ {ctx.author.name} өөрчиллөө")
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        # Алдаа гарвал мэдэгдэх
+        embed = discord.Embed(
+            title="❌ Алдаа гарлаа",
+            description="Префикс өөрчлөх үед алдаа гарлаа. Дахин оролдоно уу.",
+            color=discord.Color.red()
+        )
+        await ctx.send(embed=embed)
+        logger.error(f"Префикс өөрчлөх үед алдаа гарлаа: {str(e)}")
 
 # Run the bot
+if TOKEN is None:
+    raise ValueError("DISCORD_BOT_TOKEN environment variable is not set.")
 bot.run(TOKEN)

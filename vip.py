@@ -613,26 +613,21 @@ class VIP(commands.Cog):
     @tasks.loop(hours=1)
     async def remove_expired_vip(self) -> None:
         """Хугацаа нь дууссан VIP эрхүүдийг устгах"""
+        await self.ensure_database()  # Холболтоо шалгах
         if not self.conn:
+            logger.error("❌ Мэдээллийн сантай холбогдож чадсангүй")
             return
-            
+                
         try:
             now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-            async with self.conn.execute(
+            await self.execute_db(
                 "UPDATE users1 SET vip_expiry = NULL, vip_level = NULL WHERE vip_expiry IS NOT NULL AND vip_expiry < ?",
                 (now,)
-            ) as cursor:
-                await self.conn.commit()
-            logger.info("✅ Хугацаа нь дууссан VIP эрхүүдийг амжилттай устгалаа!")
+            )
+            await self.commit_db()
+            logger.info("✅ Хугацаа дууссан VIP эрхүүдийг амжилттай устгалаа!")
         except Exception as e:
-            logger.error(f"❌ Хугацаа нь дууссан VIP эрхүүдийг устгахад алдаа гарлаа: {e}")
-
-    async def cog_unload(self) -> None:
-        """Ког устгахад таскуудыг зогсоох"""
-        if self.remove_expired_vip.is_running():
-            self.remove_expired_vip.cancel()
-        if self.conn:
-            await self.conn.close()
+            logger.error(f"❌ VIP эрхүүдийг устгахад алдаа гарлаа: {str(e)}")
 
 async def setup(bot: commands.Bot) -> None:
     """🛠 Ботод VIP когийг нэмэх"""
