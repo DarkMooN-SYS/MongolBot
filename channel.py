@@ -72,64 +72,45 @@ class ChannelControl(commands.Cog):
     ])
     @app_commands.checks.has_permissions(administrator=True)
     async def channel_control(self, interaction: discord.Interaction, action: Literal["enable", "disable"], target: str):
-        # Даруй хариу өгөх
-        await interaction.response.defer()
-
         try:
-            guild = interaction.guild
-            if not guild:
-                return await interaction.followup.send("❌ Энэ команд зөвхөн сервер дээр ажиллана")
+            # Хариу өгөх хүлээлт үүсгэх
+            await interaction.response.defer(ephemeral=True)
+            
+            if not interaction.guild:
+                await interaction.followup.send("❌ Энэ команд зөвхөн сервер дээр ажиллана", ephemeral=True)
+                return
 
             if target.lower() == "all":
-                # Нэг мөр мэдээлэл өгөх
-                await interaction.followup.send("⏳ Сувгуудыг шалгаж байна...")
-                
-                changed = 0
-                failed = 0
-                
-                for channel in guild.channels:
-                    if isinstance(channel, (discord.TextChannel, discord.ForumChannel)):
-                        try:
-                            # Зөвхөн чат сувгуудыг өөрчлөх
-                            if action == "disable":
-                                await self.disable_channel(guild.id, channel.id)
-                            else:
-                                await self.enable_channel(guild.id, channel.id)
-                            changed += 1
-                        except:
-                            failed += 1
-                            continue
-
-                status = "хаагдлаа" if action == "disable" else "нээгдлээ"
-                return await interaction.edit_original_response(
-                    content=f"✅ {changed} суваг {status}"
-                )
-
-            # Нэг суваг өөрчлөх
-            if target.startswith("<#") and target.endswith(">"):
-                try:
-                    channel_id = int(target[2:-1])
-                    channel = guild.get_channel(channel_id)
-
-                    if not channel:
-                        return await interaction.followup.send("❌ Суваг олдсонгүй")
-
+                for channel in interaction.guild.text_channels:
                     if action == "disable":
-                        await self.disable_channel(guild.id, channel.id)
-                        msg = f"✅ {channel.mention} суваг хаагдлаа"
+                        await self.disable_channel(interaction.guild.id, channel.id)
                     else:
-                        await self.enable_channel(guild.id, channel.id)
-                        msg = f"✅ {channel.mention} суваг нээгдлээ"
+                        await self.enable_channel(interaction.guild.id, channel.id)
+                
+                status = "хаагдлаа ✅" if action == "disable" else "нээгдлээ ✅"
+                await interaction.followup.send(f"Бүх текст суваг {status}", ephemeral=True)
+                return
 
-                    return await interaction.followup.send(msg)
+            if target.startswith("<#") and target.endswith(">"):
+                channel_id = int(target[2:-1])
+                channel = interaction.guild.get_channel(channel_id)
+                
+                if not channel:
+                    await interaction.followup.send("❌ Суваг олдсонгүй", ephemeral=True)
+                    return
 
-                except ValueError:
-                    return await interaction.followup.send("❌ Буруу суваг")
+                if action == "disable":
+                    await self.disable_channel(interaction.guild.id, channel.id)
+                    await interaction.followup.send(f"{channel.mention} суваг хаагдлаа ✅", ephemeral=True)
+                else:
+                    await self.enable_channel(interaction.guild.id, channel.id)
+                    await interaction.followup.send(f"{channel.mention} суваг нээгдлээ ✅", ephemeral=True)
+                return
 
-            await interaction.followup.send("❌ `/channel enable #channel` эсвэл `/channel disable all` гэж бичнэ үү")
+            await interaction.followup.send("❌ `/channel enable #channel` эсвэл `/channel disable all` гэж бичнэ үү", ephemeral=True)
 
         except Exception as e:
-            await interaction.followup.send(f"❌ Алдаа гарлаа: {str(e)}")
+            await interaction.followup.send(f"❌ Алдаа гарлаа: {str(e)}", ephemeral=True)
 
     # ✅ BLOCK MESSAGE
     @commands.Cog.listener()
