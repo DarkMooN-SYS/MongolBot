@@ -50,6 +50,9 @@ bot.owner_id = 751055793893146624  # Change this to your Discord ID
 
 # Extensions list шинэчлэх 
 extensions = [
+    # Music Cog
+    'cogs.music.music',
+    
     # Economy Cogs
     'cogs.economy.bank',
     'cogs.economy.economy', 
