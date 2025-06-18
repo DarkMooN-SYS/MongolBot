@@ -1,26 +1,34 @@
-import asyncio
-import aiosqlite
-import os
 import discord
 from discord.ext import commands
+import asyncio
 import logging
 import traceback
+from typing import Optional
+import os
 from dotenv import load_dotenv
-import sqlite3
-import time
-from discord.ext import commands
-import random
-import settings
+from cogs.utils import settings
+# MongolBot - Discord Bot
 
 # Load environment variables
 load_dotenv()
-TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+
+# Check if token exists
+if not TOKEN:
+    print("❌ DISCORD_BOT_TOKEN байхгүй байна! .env файлаа шалгана уу.")
+    exit(1)
+
+# Logging тохиргоо
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
 
 # Set up logging
-logging.basicConfig(level=logging.WARNING)  # INFO биш, WARNING л бичих
-
-discord.utils.setup_logging(level=logging.INFO)
-
 logger = logging.getLogger(__name__)
 
 # Intents
@@ -28,9 +36,6 @@ intents = discord.Intents.all()
 intents.members = True
 intents.presences = True
 intents.message_content = True
-
-# Bot prefix хэсгийг хасах
-# prefix = ">"
 
 # Bot үүсгэх хэсгийг өөрчлөх
 activity = discord.Activity(type=discord.ActivityType.playing, name="mhelp")
@@ -43,48 +48,225 @@ bot = commands.Bot(
 
 bot.owner_id = 751055793893146624  # Change this to your Discord ID
 
+# Extensions list шинэчлэх 
+extensions = [
+    # Economy Cogs
+    'cogs.economy.bank',
+    'cogs.economy.economy', 
+    'cogs.economy.serverbank',
+    'cogs.economy.vip',
+    # Games Cogs
+    'cogs.games.buh',
+    'cogs.games.horseracing',
+    'cogs.games.game',
+    
+    # Admin Cogs
+    'cogs.admin.admin',
+    'cogs.admin.owner',
+    'cogs.admin.suggest',
+    'cogs.admin.giveaway',
+    'cogs.admin.fun',
+    'cogs.admin.blacklist',
+    'cogs.admin.birthday',
+    'cogs.admin.report',
+    'cogs.admin.event_policy',
+    
+    # Utils Cogs
+    'cogs.utils.support',
+    'cogs.utils.help'
+]
+
 @bot.event
 async def on_ready():
     # Префикс системийг эхлүүлэх
     try:
-        await settings.init_db()  # Датабааз үүсгэх
-        await settings.load_prefixes()  # Префиксүүдийг ачаалах
+        await settings.init_db()
+        await settings.load_prefixes()
         logger.info("✅ Префикс систем амжилттай эхэллээ")
     except Exception as e:
         logger.error(f"❌ Префикс систем эхлүүлэхэд алдаа гарлаа: {e}")
 
-    # Когуудыг ачаалах
-    extensions = ['vip', 'report', 'admin', 'fun', 'birthday', 'giveaway', 'horseracing', 
-                  'help', 'Owner', 'buh', 'economy', 'bank', 'game', 'suggest', 'count',
-                  'support', 'channel']
-
-    # Бусад когиудыг ачаалах
-    for extension in extensions:
+    # Cog-уудыг зөв дарааллаар ачаалах
+    try:
+        # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
         try:
-            await bot.load_extension(extension)
-            logging.info(f"✅ Ачаалсан: {extension}")
+            await bot.load_extension("cogs.economy.vip")
+            logger.info("✅ VIP систем ачаалагдлаа")
         except Exception as e:
-            logging.error(f"🚨 Ачаалж чадсангүй: {extension} - {e}")
+            logger.error(f"❌ VIP систем ачаалахад алдаа: {e}")
+            
+        # Дараа нь бусад cog-уудыг ачаална
+        for extension in extensions:
+            if extension != "cogs.economy.vip":  # VIP-ийг давтж ачаалахгүй
+                try:
+                    await bot.load_extension(f"{extension}")
+                    logger.info(f"✅ Ачаалсан: {extension}")
+                except Exception as e:
+                    logger.error(f"🚨 Ачаалж чадсангүй: {extension} - {e}")
+
+        # Дараа нь бүх командуудыг sync хийнэ
+        try:
+            synced = await bot.tree.sync()
+            logger.info(f"✅ Slash командууд sync хийгдлээ: {len(synced)} команд")
+            for cmd in synced:
+                logger.info(f"Sync хийгдсэн команд: {cmd.name}")
+        except Exception as e:
+            logger.error(f"❌ Slash команд sync хийхэд алдаа гарлаа: {e}")
+
+    except Exception as e:
+        logger.error(f"❌ Когууд ачаалахад алдаа гарлаа: {e}")
 
     logger.info(f"✅ {bot.user} амжилттай холбогдлоо!")
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: Exception):
+    """
+    Бүх команд дээр гарсан алдааг боловсруулах
+    
+    Args:
+        ctx (commands.Context): Команд контекст
+        error (Exception): Гарсан алдаа
+    """
+    # Embed message бэлтгэх
+    error_embed = discord.Embed(color=discord.Color.red())
+    error_embed.set_author(name="❌ Алдаа")
+    
+    # Алдааны төрлийг шалгах
     if isinstance(error, commands.CommandNotFound):
-        return
+        return  # Команд олдохгүй бол алдаа харуулахгүй
+        
     elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("🚨 Шаардлагатай аргумент дутуу байна.")
+        # Командын нэрийг авах
+        command_name = ctx.command.name if ctx.command else "энэ команд"
+        
+        # Тухайн командын хэрэглээг харуулах жишээ гаргах
+        usage = ""
+        if ctx.command and ctx.command.help:
+            usage = f"\n\nЖишээ нь: `{ctx.prefix}{command_name} {ctx.command.help}`"
+        
+        # Дутуу орсон мэдээллийн нэрийг монгол болгох
+        param_name = error.param.name
+        translated_param = {
+            "member": "хэрэглэгч",
+            "user": "хэрэглэгч",
+            "channel": "суваг",
+            "role": "роль",
+            "message": "мессеж",
+            "amount": "тоо хэмжээ",
+            "reason": "шалтгаан",
+            "target": "зорилтот",
+            "text": "текст",
+            "name": "нэр",
+            "description": "тайлбар"
+        }.get(param_name, param_name)
+        
+        error_embed.description = f"❗ **{command_name}** командыг ашиглахад **{translated_param}** гэсэн мэдээлэл дутуу байна.{usage}"
+        error_embed.set_footer(text=f"💡 Командын бүрэн заавар авахын тулд {ctx.prefix}help {command_name} гэж бичнэ үү")
+        
+    elif isinstance(error, AttributeError) and str(error).endswith("'NoneType' object has no attribute 'lower'"):
+        command_name = ctx.command.name if ctx.command else "энэ команд"
+        error_embed.description = f"❌ **{command_name}** командад хоосон утга оруулсан байна.\n💡 Та утга оруулсан эсэхээ шалгаад дахин оролдоно уу"
+        
     elif isinstance(error, commands.CommandOnCooldown):
         cooldown_time = int(error.retry_after)
-        message = await ctx.send(f"⏳ Энэ командыг дахин ашиглахын тулд ``{cooldown_time}`` секунд хүлээнэ үү.")
+        minutes = cooldown_time // 60
+        seconds = cooldown_time % 60
+        
+        if minutes > 0:
+            time_text = f"{minutes} минут {seconds} секунд"
+        else:
+            time_text = f"{seconds} секунд"
+            
+        error_embed.set_author(name="⏳ Түр хүлээнэ үү")
+        error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
+        message = await ctx.send(embed=error_embed)
+        
+        # Cooldown хугацааг хүлээх
         while cooldown_time > 0:
             await asyncio.sleep(1)
             cooldown_time -= 1
-            await message.edit(content=f"⏳ Энэ командыг дахин ашиглахын тулд ``{cooldown_time}`` секунд хүлээнэ үү.")
-        await message.edit(content="✅ Одоо энэ командыг дахин ашиглаж болно!")
-
+            
+            if cooldown_time > 60:
+                time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
+            else:
+                time_text = f"{cooldown_time} секунд"
+                
+            error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
+            await message.edit(embed=error_embed)
+            
+        error_embed.color = discord.Color.green()
+        error_embed.set_author(name="✅ Команд бэлэн боллоо")
+        error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
+        await message.edit(embed=error_embed)
+        return
+        
+    elif isinstance(error, commands.MissingPermissions):
+        missing_perms = []
+        for perm in error.missing_permissions:
+            translated_perm = {
+                "kick_members": "гишүүдийг хөөх",
+                "ban_members": "гишүүдийг бандах",
+                "administrator": "админ",
+                "manage_channels": "сувгуудыг удирдах",
+                "manage_guild": "серверийг удирдах",
+                "manage_messages": "мессежүүдийг удирдах",
+                "manage_roles": "ролиудыг удирдах",
+                "manage_webhooks": "вебхүүкүүдийг удирдах",
+                "manage_emojis": "эможинуудыг удирдах",
+                "view_audit_log": "аудит лог харах",
+                "view_guild_insights": "сервер статистик харах",
+                "moderate_members": "гишүүдийг зохицуулах"
+            }.get(perm, perm.replace("_", " ").title())
+            missing_perms.append(f"`{translated_perm}`")
+            
+        error_embed.description = f"❌ Танд дараах эрх байхгүй байна:\n{', '.join(missing_perms)}"
+        
+    elif isinstance(error, commands.BotMissingPermissions):
+        missing_perms = []
+        for perm in error.missing_permissions:
+            translated_perm = {
+                "kick_members": "гишүүдийг хөөх",
+                "ban_members": "гишүүдийг бандах",
+                "administrator": "админ",
+                "manage_channels": "сувгуудыг удирдах",
+                "manage_guild": "серверийг удирдах",
+                "manage_messages": "мессежүүдийг удирдах",
+                "manage_roles": "ролиудыг удирдах",
+                "manage_webhooks": "вебхүүкүүдийг удирдах",
+                "manage_emojis": "эможинуудыг удирдах",
+                "view_audit_log": "аудит лог харах",
+                "view_guild_insights": "сервер статистик харах",
+                "moderate_members": "гишүүдийг зохицуулах"
+            }.get(perm, perm.replace("_", " ").title())
+            missing_perms.append(f"`{translated_perm}`")
+            
+        error_embed.description = f"❌ Ботд дараах эрх байхгүй байна:\n{', '.join(missing_perms)}"
+        
+    elif isinstance(error, commands.MemberNotFound):
+        error_embed.description = "❌ Таны заасан хэрэглэгч олдсонгүй.\n💡 Та хэрэглэгчийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
+        
+    elif isinstance(error, commands.ChannelNotFound):
+        error_embed.description = "❌ Таны заасан суваг олдсонгүй.\n💡 Та сувгийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
+        
+    elif isinstance(error, commands.RoleNotFound):
+        error_embed.description = "❌ Таны заасан роль олдсонгүй.\n💡 Та ролийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
+        
     else:
-        logging.error(f"⚠️ Алдаа: {error}")
+        # Алдааны мэдээллийг логдох
+        error_embed.description = "⚠️ Уучлаарай, алдаа гарлаа. Админтай холбогдоно уу."
+        logging.error(f"Алдаа гарлаа командад: {ctx.command}")
+        logging.error(f"Алдааны мэдээлэл: {error}")
+        logging.error("Traceback:")
+        logging.error(traceback.format_exc())
+
+    try:
+        # Алдааны мессеж илгээх
+        message = await ctx.send(embed=error_embed)
+        # 10 секундын дараа мессежийг устгах
+        await asyncio.sleep(10)
+        await message.delete()
+    except discord.Forbidden:
+        pass  # Хэрэв мессеж илгээх эрх байхгүй бол алгасах
 
 bot.remove_command("help")
 
@@ -206,6 +388,31 @@ async def set_prefix_command(ctx: commands.Context, new_prefix: str):
         )
         await ctx.send(embed=embed)
         logger.error(f"Префикс өөрчлөх үед алдаа гарлаа: {str(e)}")
+
+@bot.command(name='commands')
+@commands.is_owner()
+async def list_all_commands(ctx: commands.Context):
+    """Ботын бүх командуудыг цэгцтэй, embed хэлбэрээр харуулна (owner only)"""
+    commands_per_embed = 25  # Discord embed field limit
+    commands_list = [cmd for cmd in bot.commands if not cmd.hidden]
+    if not commands_list:
+        await ctx.send("Команд олдсонгүй.")
+        return
+    for i in range(0, len(commands_list), commands_per_embed):
+        embed = discord.Embed(title="🤖 Ботын бүх командууд", color=discord.Color.blurple())
+        for command in commands_list[i:i+commands_per_embed]:
+            aliases = f"\n**Aliases:** {', '.join(command.aliases)}" if command.aliases else ""
+            # Help текстээс Args: хэсгийг арилгах
+            help_text = command.help or "Тайлбар байхгүй"
+            if "Args:" in help_text:
+                help_text = help_text.split("Args:")[0].strip()
+            desc = help_text + aliases
+            embed.add_field(
+                name=f"`{ctx.prefix}{command.name}`",
+                value=desc,
+                inline=False
+            )
+        await ctx.send(embed=embed)
 
 # Run the bot
 if TOKEN is None:
