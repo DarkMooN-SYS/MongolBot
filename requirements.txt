@@ -4,3 +4,4 @@ python-dotenv
 wavelink
 aiohttp
 PyNaCl
+pytz
