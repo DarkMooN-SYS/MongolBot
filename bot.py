@@ -50,7 +50,7 @@ bot.owner_id = 751055793893146624  # Change this to your Discord ID
 
 # Extensions list шинэчлэх 
 extensions = [
-    # Music Cog
+    # Music Cogs
     'cogs.music.music',
     
     # Economy Cogs
@@ -62,7 +62,7 @@ extensions = [
     'cogs.games.buh',
     'cogs.games.horseracing',
     'cogs.games.game',
-    
+
     # Admin Cogs
     'cogs.admin.admin',
     'cogs.admin.owner',
@@ -78,18 +78,8 @@ extensions = [
     'cogs.utils.support',
     'cogs.utils.help'
 ]
-
-@bot.event
-async def on_ready():
-    # Префикс системийг эхлүүлэх
-    try:
-        await settings.init_db()
-        await settings.load_prefixes()
-        logger.info("✅ Префикс систем амжилттай эхэллээ")
-    except Exception as e:
-        logger.error(f"❌ Префикс систем эхлүүлэхэд алдаа гарлаа: {e}")
-
-    # Cog-уудыг зөв дарааллаар ачаалах
+# Cog-уудыг зөв дарааллаар ачаалах
+async def load_cogs_and_sync():
     try:
         # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
         try:
@@ -119,7 +109,10 @@ async def on_ready():
     except Exception as e:
         logger.error(f"❌ Когууд ачаалахад алдаа гарлаа: {e}")
 
+@bot.event
+async def on_ready():
     logger.info(f"✅ {bot.user} амжилттай холбогдлоо!")
+    await load_cogs_and_sync()
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: Exception):

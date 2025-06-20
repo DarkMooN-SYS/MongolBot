@@ -1,42 +1,52 @@
 {
-    "VIP_LEVELS": {
+    "VIP_LEVELS": {        
         "Bronze": {
-            "price": 290000000,
+            "price": 22000000,
             "gift_discount": 0.90,
             "days": 30,
             "bonus": 500000,
             "extend_price": 290000000,
             "max_bet": 1000000,
-            "cooldown": 8
-        },
+            "cooldown": 8,
+            "max_loan": 2000000,
+            "loan_interest_rate": 0.04
+        },        
         "Silver": {
-            "price": 360000000,
-            "gift_discount": 0.90,
+            "price": 40000000,
+            "gift_discount": 0.85,
             "days": 30,
             "bonus": 1000000,
             "extend_price": 360000000,
             "max_bet": 1500000,
-            "cooldown": 6
-        },
+            "cooldown": 6,
+            "max_loan": 3000000,
+            "loan_interest_rate": 0.035
+        },        
         "Gold": {
-            "price": 480000000,
-            "gift_discount": 0.90,
+            "price": 85000000,
+            "gift_discount": 0.80,
             "days": 60,
             "bonus": 1500000,
             "extend_price": 480000000,
             "max_bet": 3000000,
-            "cooldown": 4
-        },
+            "cooldown": 4,
+            "max_loan": 4000000,
+            "loan_interest_rate": 0.03
+        },          
         "Diamond": {
-            "price": 550000000,
-            "gift_discount": 0.90,
+            "price": 150000000,
+            "gift_discount": 0.75,
             "days": 60,
             "bonus": 2000000,
             "extend_price": 550000000,
             "max_bet": 5000000,
-            "cooldown": 2
+            "cooldown": 2,
+            "max_loan": 5000000,
+            "loan_interest_rate": 0.025
         }
     },
     "DEFAULT_MAX_BET": 300000,
-    "DEFAULT_COOLDOWN": 10
+    "DEFAULT_COOLDOWN": 10,
+    "DEFAULT_MAX_LOAN": 1000000,
+    "DEFAULT_LOAN_INTEREST_RATE": 0.05
 }

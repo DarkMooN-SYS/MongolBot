@@ -126,6 +126,18 @@ class Bank(commands.Cog):
             return await self.vip_cog.get_cooldown_for_user(user_id)
         return 10  # Default cooldown in seconds if VIP cog or method is not available
 
+    async def get_max_loan_for_user(self, user_id: int) -> int:
+        """VIP хэрэглэгчийн зээлийн дээд хэмжээг авах"""
+        if self.vip_cog and hasattr(self.vip_cog, "get_max_loan_for_user"):
+            return await self.vip_cog.get_max_loan_for_user(user_id)
+        return 1_000_000  # Default max loan
+
+    async def get_loan_interest_rate_for_user(self, user_id: int) -> float:
+        """VIP хэрэглэгчийн зээлийн хүүгийн хувийг авах"""
+        if self.vip_cog and hasattr(self.vip_cog, "get_loan_interest_rate_for_user"):
+            return await self.vip_cog.get_loan_interest_rate_for_user(user_id)
+        return 0.05  # Default interest rate 5%
+
     async def get_cooldown(self, command_name: str, user_id: int):
         base_cooldown = await self.get_command_cooldown(user_id)
 
@@ -211,13 +223,18 @@ class Bank(commands.Cog):
             name="💎 Дансны үлдэгдэл",
             value=f"```py\n{bank_balance:,} ₮```",
             inline=False
-        )
-
-        # Хадгаламж ба зээлийн мэдээлэл
+        )        # Хадгаламж ба зээлийн мэдээлэл
+        # VIP түвшин шалгах
+        vip_status = ""
+        if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
+            vip_level = await self.vip_cog.get_vip_level(target_user.id)
+            if vip_level:
+                vip_status = f"\n🎭 VIP {vip_level} эрх"
+        
         financial_status = (
             f"📈 Хадгаламж: {savings_balance:,} ₮\n"
             f"📉 Зээл: {loan_balance:,} ₮\n"
-            f"📊 Нийт: {bank_balance + savings_balance - loan_balance:,} ₮"
+            f"📊 Нийт: {bank_balance + savings_balance - loan_balance:,} ₮{vip_status}"
         )
         embed.add_field(
             name="💰 Санхүүгийн тойм",
@@ -247,13 +264,22 @@ class Bank(commands.Cog):
             name="🏦 Хадгаламжийн үйлчилгээ",
             value=savings_info,
             inline=True
-        )
-
-        # Зээлийн үйлчилгээ
+        )        # Зээлийн үйлчилгээ (VIP мэдээлэл оруулах)
+        max_loan = await self.get_max_loan_for_user(target_user.id)
+        interest_rate = await self.get_loan_interest_rate_for_user(target_user.id)
+        
+        # VIP түвшин шалгах
+        vip_info = ""
+        if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
+            vip_level = await self.vip_cog.get_vip_level(target_user.id)
+            if vip_level:
+                vip_info = f" (VIP {vip_level})"
+        
         loan_info = (
-            "💸 **Зээл авах**: `mloan <дүн>`\n"
-            "💳 **Төлөх**: `mpayloan <дүн>`\n"
-            "📊 Хүү: 7 хоног тутамд 5%"
+            f"💸 **Зээл авах**: `mloan <дүн>`\n"
+            f"💳 **Төлөх**: `mpayloan <дүн>`\n"
+            f"� **Дээд хэмжээ**: {max_loan:,}₮{vip_info}\n"
+            f"�📊 **Хүү**: 7 хоног тутамд {interest_rate*100:.1f}%"
         )
         embed.add_field(
             name="💳 Зээлийн үйлчилгээ",
@@ -428,14 +454,31 @@ class Bank(commands.Cog):
             return
 
         current_loan = await self.get_balance(ctx.author.id, "loans")
-        if current_loan + converted_amount > 1_000_000:
-            await ctx.send("⚠️ Хамгийн ихдээ 1,000,000₮ зээл авах боломжтой!")
+        max_loan = await self.get_max_loan_for_user(ctx.author.id)  # Get max loan for user
+
+        if current_loan + converted_amount > max_loan:
+            # VIP түвшинг харуулах
+            vip_info = ""
+            if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
+                vip_level = await self.vip_cog.get_vip_level(ctx.author.id)
+                if vip_level:
+                    vip_info = f" (VIP {vip_level} эрх)"
+            await ctx.send(f"⚠️ Хамгийн ихдээ {max_loan:,}₮ зээл авах боломжтой{vip_info}!")
             return
 
         due_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
+        interest_rate = await self.get_loan_interest_rate_for_user(ctx.author.id)  # Get interest rate for user
         await self.update_balance("bank", ctx.author.id, converted_amount)
         await self.update_balance("loans", ctx.author.id, converted_amount, "zeel_date", due_date)
-        await ctx.send(f"✅ **{converted_amount:,}₮** зээл авлаа! Төлөх хугацаа: {due_date}")
+        
+        # VIP түвшин болон тусгай хүүгийн мэдээлэл харуулах
+        vip_message = ""
+        if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
+            vip_level = await self.vip_cog.get_vip_level(ctx.author.id)
+            if vip_level:
+                vip_message = f"\n🎭 VIP {vip_level} эрхээр {interest_rate*100:.1f}% хүүтэй!"
+        
+        await ctx.send(f"✅ **{converted_amount:,}₮** зээл авлаа! Төлөх хугацаа: {due_date}{vip_message}")
 
     @commands.command(name="payloan")
     async def payloan(self, ctx: commands.Context, amount: str) -> None:
@@ -517,15 +560,19 @@ class Bank(commands.Cog):
         await self.ensure_connection()
         if not self.conn:
             raise RuntimeError("Database connection is not established!")
+        
         last_date = await self.get_last_interest_date("loan")
         today = datetime.now()
         if last_date and (today - last_date).days < 7:
             logger.info("⚠️ Зээлийн хүү тооцох хугацаа болоогүй байна!")
             return
+        
         async with self.conn.execute("SELECT user_id, balance FROM loans") as cursor:
             rows = await cursor.fetchall()
             for user_id, balance in rows:
-                interest = int(balance * self.loan_interest_rate)
+                # VIP хэрэглэгчийн тусгай хүүгийн хувийг ашиглах
+                user_interest_rate = await self.get_loan_interest_rate_for_user(user_id)
+                interest = int(balance * user_interest_rate)
                 await self.conn.execute(
                     "UPDATE loans SET balance = balance + ? WHERE user_id = ?",
                     (interest, user_id)

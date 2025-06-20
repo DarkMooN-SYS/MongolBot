@@ -5,3 +5,14 @@ wavelink
 aiohttp
 PyNaCl
 pytz
+BeautifulSoup4
+psutil
+requests
+lxml
+chardet
+billboard.py
+koreanbots
+topggpy
+pymysql
+soundcloud-lib
+cryptography

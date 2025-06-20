@@ -15,18 +15,8 @@ class Music(commands.Cog):
 
     async def start_lavalink(self):
         await self.bot.wait_until_ready()
-        node = wavelink.Node(uri='http://185.128.227.86:6029', password='Dragon95279853')
+        node = wavelink.Node(uri='http://67.220.85.182:6576', password='Dragon95279853')
         await wavelink.Pool.connect(client=self.bot, nodes=[node])
-
-    @commands.command(name='join')
-    async def join(self, ctx: commands.Context):
-        voice_state = getattr(ctx.author, 'voice', None)
-        if voice_state and voice_state.channel:
-            channel = voice_state.channel
-            await channel.connect(cls=wavelink.Player)
-            await ctx.send(f'Бот {channel.name} өрөөнд нэгдлээ!')
-        else:
-            await ctx.send('Та voice channel-д ороогүй байна.')
 
     @commands.command(name='play')
     async def play(self, ctx: commands.Context, *, search: str):

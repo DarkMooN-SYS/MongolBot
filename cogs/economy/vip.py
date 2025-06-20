@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import logging
 import os
+import asyncio
 import aiosqlite
 from typing import Optional, Dict, Any, Tuple, Union
 from ..utils.database import get_async_db_context
@@ -19,15 +20,22 @@ try:
         VIP_LEVELS = vip_data["VIP_LEVELS"]
         DEFAULT_MAX_BET = vip_data["DEFAULT_MAX_BET"]
         DEFAULT_COOLDOWN = vip_data["DEFAULT_COOLDOWN"]
+        DEFAULT_MAX_LOAN = vip_data.get("DEFAULT_MAX_LOAN", 1000000)
+        DEFAULT_LOAN_INTEREST_RATE = vip_data.get("DEFAULT_LOAN_INTEREST_RATE", 0.05)
 except FileNotFoundError:
     logger.error(f"⚠️ vip_levels.json файл олдсонгүй: {json_path}")
     VIP_LEVELS = {}
     DEFAULT_MAX_BET = 300000
     DEFAULT_COOLDOWN = 10
+    DEFAULT_MAX_LOAN = 1000000
+    DEFAULT_LOAN_INTEREST_RATE = 0.05
 except json.JSONDecodeError:
     logger.error("⚠️ vip_levels.json файлын формат буруу байна!")
     VIP_LEVELS = {}
     DEFAULT_MAX_BET = 300000
+    DEFAULT_COOLDOWN = 10
+    DEFAULT_MAX_LOAN = 1000000
+    DEFAULT_LOAN_INTEREST_RATE = 0.05
     DEFAULT_COOLDOWN = 10
 
 class GiftVIPDropdown(discord.ui.Select):
@@ -76,26 +84,67 @@ class GiftVIPView(discord.ui.View):
             pass
 
 class VIPBuyButton(discord.ui.Button):
-    def __init__(self, level: str, vip_cog: Any):
+    def __init__(self, level: str, vip_cog: Any, original_user: Union[discord.User, discord.Member]):
         super().__init__(
-            label=f"🎟 {level} VIP авах",
+            label=f"🎟 {level} VIP",
             style=discord.ButtonStyle.primary,
             custom_id=f"buyvip_{level}"
         )
         self.level = level
         self.vip_cog = vip_cog
+        self.original_user = original_user
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.original_user.id:
+            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            return
         await interaction.response.defer()
+        await self.vip_cog.buy_vip(interaction, self.level, self.original_user)
+
+class VIPDetailView(discord.ui.View):
+    def __init__(self, vip_cog: Any, level: str, original_embed: discord.Embed, original_user: Union[discord.User, discord.Member]):
+        super().__init__(timeout=60)
+        self.vip_cog = vip_cog
+        self.level = level
+        self.original_embed = original_embed
+        self.original_user = original_user
+
+    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success, custom_id="confirm_purchase")
+    async def confirm_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.original_user.id:
+            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            return
+        await interaction.response.defer()
+        # Clear the active session before processing purchase
+        self.vip_cog._active_sessions.discard(self.original_user.id)
         await self.vip_cog.process_vip_purchase(interaction, interaction.user, self.level)
 
-class VIPButtons(discord.ui.View):
-    def __init__(self, vip_cog: Any):
-        super().__init__(timeout=60)
-        for level in VIP_LEVELS.keys():
-            self.add_item(VIPBuyButton(level, vip_cog))
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="cancel_purchase")
+    async def cancel_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        if interaction.user.id != self.original_user.id:
+            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            return
+        await interaction.response.defer()
+        # Return to main VIP selection
+        view = VIPButtons(self.vip_cog, self.original_user)
+        await interaction.edit_original_response(embed=self.original_embed, view=view)
 
     async def on_timeout(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+
+class VIPButtons(discord.ui.View):
+    def __init__(self, vip_cog: Any, original_user: Union[discord.User, discord.Member]):
+        super().__init__(timeout=60)
+        self.original_user = original_user
+        self.vip_cog = vip_cog
+        for level in VIP_LEVELS.keys():
+            self.add_item(VIPBuyButton(level, vip_cog, original_user))
+
+    async def on_timeout(self) -> None:
+        # Clear the active session when view times out
+        self.vip_cog._active_sessions.discard(self.original_user.id)
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
@@ -104,6 +153,7 @@ class VIP(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.vip_levels = VIP_LEVELS
+        self._active_sessions = set()  # Track active VIP purchase sessions
         # Start the periodic task after database setup in on_ready
 
     @commands.Cog.listener()
@@ -152,6 +202,16 @@ class VIP(commands.Cog):
     async def get_cooldown_for_user(self, user_id: int) -> int:
         vip_level = await self.get_vip_level(user_id)
         return self.vip_levels.get(vip_level, {}).get("cooldown", DEFAULT_COOLDOWN)
+
+    async def get_max_loan_for_user(self, user_id: int) -> int:
+        """VIP хэрэглэгчийн зээлийн дээд хэмжээг буцаах"""
+        vip_level = await self.get_vip_level(user_id)
+        return self.vip_levels.get(vip_level, {}).get("max_loan", DEFAULT_MAX_LOAN)
+
+    async def get_loan_interest_rate_for_user(self, user_id: int) -> float:
+        """VIP хэрэглэгчийн зээлийн хүүгийн хувийг буцаах"""
+        vip_level = await self.get_vip_level(user_id)
+        return self.vip_levels.get(vip_level, {}).get("loan_interest_rate", DEFAULT_LOAN_INTEREST_RATE)
 
     async def check_vip(self, user_id: int) -> bool:
         """VIP эрх хүчинтэй эсэхийг шалгах"""
@@ -228,10 +288,25 @@ class VIP(commands.Cog):
             avatar_url = self.get_user_avatar_url(ctx.author)
             if avatar_url:
                 embed.set_author(name=ctx.author.display_name, icon_url=avatar_url)
-            
-            embed.add_field(name="📅 VIP дуусах хугацаа", value=expiry_date[:10], inline=False)
+
             embed.add_field(name="🏆 VIP түвшин", value=vip_level, inline=True)
-            embed.add_field(name="🔹 Нийт VIP авсан", value=f"{vip_count} удаа", inline=False)
+            embed.add_field(name="📅 VIP дуусах хугацаа", value=expiry_date[:10], inline=True)
+            
+            # VIP давуу талуудыг харуулах
+            max_bet = await self.get_max_bet_for_user(ctx.author.id)
+            max_loan = await self.get_max_loan_for_user(ctx.author.id)
+            loan_interest_rate = await self.get_loan_interest_rate_for_user(ctx.author.id)
+            cooldown = await self.get_cooldown_for_user(ctx.author.id)
+            
+            # VIP давуу талууд
+            vip_benefits = (
+                f"🎰 **Тоглоомын дээд хэмжээ**: {max_bet:,}₮\n"
+                f"💸 **Зээлийн дээд хэмжээ**: {max_loan:,}₮\n"
+                f"📉 **Зээлийн хүү**: {loan_interest_rate*100:.1f}%\n"
+                f"⏱️ **Команд хүлээх хугацаа**: {cooldown} секунд"
+            )
+            embed.add_field(name="🎭 VIP давуу талууд", value=vip_benefits, inline=False)
+            embed.add_field(name="🔹 Нийт VIP авсан", value=f"{vip_count} удаа", inline=True)
             embed.add_field(name="🎁 Нийт VIP бэлэглэсэн", value=f"{gifted_vip_count} удаа", inline=True)
             embed.set_footer(text="🎟 **Та VIP түвшин шинэчлэх боломжтой!**")
 
@@ -270,38 +345,124 @@ class VIP(commands.Cog):
             return await ctx.send(embed=embed)
         except Exception:
             return await ctx.send("⚠️ Системд алдаа гарлаа!")
-
+        
     @commands.command(name="buyvip")
-    async def buy_vip(self, ctx: commands.Context) -> Optional[discord.Message]:
-        """VIP худалдан авах цэс харуулах"""
-        embed = discord.Embed(title="💎 VIP ХУДАЛДАН АВАХ", color=discord.Color.gold())
-        embed.set_author(name=ctx.author.name)
-        avatar_url = self.get_user_avatar_url(ctx.author)
-        if avatar_url:
-            embed.set_author(name=ctx.author.name, icon_url=avatar_url)
-            
-        embed.description = "Та авах VIP түвшинг сонгоно уу."
-
-        for level, info in self.vip_levels.items():
+    async def buyvip(self, ctx: commands.Context) -> Optional[discord.Message]:
+        """🎟 VIP эрх худалдан авах команд"""
+        # Check if user already has an active VIP purchase session
+        if ctx.author.id in self._active_sessions:
+            return await ctx.send("⚠️ Та аль хэдийн VIP худалдан авах цэсийг нээсэн байна!")
+        
+        # Add user to active sessions
+        self._active_sessions.add(ctx.author.id)
+        
+        try:
+            # Create main VIP selection embed
+            embed = discord.Embed(title="🎟 VIP эрх худалдан авах", color=discord.Color.gold())
             embed.add_field(
-                name=f"🎟 {level}", 
+                name="🎭 VIP-н давуу талууд", 
+                value="• Команд хүлээх хугацаа богино\n• Тоглоомын дээд хэмжээ өндөр\n• Зээлийн хэмжээ ихэсгэх\n• Урт хугацааны боломжууд\n• Өдөр тутмын урамшуулал",
+                inline=False
+            )
+            
+            # Add all VIP levels
+            for level, info in self.vip_levels.items():
+                embed.add_field(
+                    name=f"🎟 {level}", 
+                    value=f"💰 **{info['price']:,}₮** - {info['days']} хоног", 
+                    inline=False
+                )
+
+            embed.set_footer(text="🎟 **VIP авахын тулд доорх товчийг дарна уу!**")
+
+            # Create view with VIP level buttons
+            view = VIPButtons(self, ctx.author)
+            return await ctx.send(embed=embed, view=view)
+            
+        except Exception as e:
+            # Remove from active sessions on error
+            self._active_sessions.discard(ctx.author.id)
+            logger.error(f"VIP худалдан авах командад алдаа: {e}")
+            return await ctx.send("⚠️ VIP цэс нээхэд алдаа гарлаа!")
+
+    async def buy_vip(self, interaction: discord.Interaction, level: str, original_user: Union[discord.User, discord.Member]) -> None:
+        """Display detailed information for a specific VIP level with confirm/cancel options"""
+        if level not in self.vip_levels:
+            await interaction.followup.send("❌ Хүсэлтэй VIP түвшин олдсонгүй!", ephemeral=True)
+            return
+
+        vip_info = self.vip_levels[level]
+        price = vip_info["price"]
+        days = vip_info["days"]
+        max_bet = vip_info.get("max_bet", DEFAULT_MAX_BET)
+        max_loan = vip_info.get("max_loan", DEFAULT_MAX_LOAN)
+        loan_interest_rate = vip_info.get("loan_interest_rate", DEFAULT_LOAN_INTEREST_RATE)
+        cooldown = vip_info.get("cooldown", DEFAULT_COOLDOWN)
+        bonus = vip_info.get("bonus", 0)
+
+        # Create detailed embed for this specific VIP level
+        embed = discord.Embed(
+            title=f"🎟 {level} VIP - Дэлгэрэнгүй мэдээлэл",
+            description=f"**{level} VIP** эрх худалдан авахаар байна уу?",
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(name="💰 Үнэ", value=f"{price:,}₮", inline=True)
+        embed.add_field(name="📅 Хугацаа", value=f"{days} хоног", inline=True)
+        embed.add_field(name="🎰 Тоглоомын дээд хэмжээ", value=f"{max_bet:,}₮", inline=True)
+        embed.add_field(name="💸 Зээлийн дээд хэмжээ", value=f"{max_loan:,}₮", inline=True)
+        embed.add_field(name="📉 Зээлийн хүү", value=f"{loan_interest_rate*100:.1f}%", inline=True)
+        embed.add_field(name="⏱️ Команд хүлээх хугацаа", value=f"{cooldown} секунд", inline=True)
+        
+        if bonus > 0:
+            embed.add_field(name="🎁 Өдөр тутмын урамшуулал", value=f"{bonus:,}₮", inline=True)
+        
+        # Хэрэглэгчийн VIP түвшингээс хамааруулсан бэлэглэх хөнгөлөлт харуулах
+        user_vip_level = await self.get_vip_level(original_user.id)
+        if user_vip_level and user_vip_level in self.vip_levels:
+            user_vip_info = self.vip_levels[user_vip_level]
+            current_gift_discount = user_vip_info.get("gift_discount", 1.0)
+
+        # Энэ VIP түвшинг авсны дараа бэлэглэхэд авах хөнгөлөлт харуулах
+        future_gift_discount = vip_info.get("gift_discount", 1.0)
+        future_gift_price = int(price * future_gift_discount)
+        future_discount_percent = int((1 - future_gift_discount) * 100)
+        
+        embed.add_field(
+            name=f"🎁 {level} VIP-ээр бэлэглэх хөнгөлөлт", 
+            value=f"({future_discount_percent}% хөнгөлөлт)", 
+            inline=True
+        )
+
+        embed.set_footer(text="✅ 'Confirm' дарж баталгаажуулах эсвэл ❌ 'Cancel' дарж цуцлана уу")
+
+        # Create the original VIP selection embed for going back
+        original_embed = discord.Embed(title="🎟 VIP эрх худалдан авах", color=discord.Color.gold())
+        original_embed.add_field(
+            name="🎭 VIP-н давуу талууд", 
+            value="• Команд хүлээх хугацаа богино\n• Тоглоомын дээд хэмжээ өндөр\n• Зээлийн хэмжээ ихэсгэх\n• Урт хугацааны боломжууд\n• Өдөр тутмын урамшуулал",
+            inline=False
+        )
+        
+        for vlevel, info in self.vip_levels.items():
+            original_embed.add_field(
+                name=f"🎟 {vlevel}", 
                 value=f"💰 **{info['price']:,}₮** - {info['days']} хоног", 
                 inline=False
             )
 
-        embed.set_footer(text="🎟 **VIP авахын тулд доорх товчийг дарна уу!**")
+        original_embed.set_footer(text="🎟 **VIP авахын тулд доорх товчийг дарна уу!**")
 
-        view = VIPButtons(self)
-        return await ctx.send(embed=embed, view=view)
+        # Create view with confirm/cancel buttons
+        view = VIPDetailView(self, level, original_embed, original_user)
+        await interaction.edit_original_response(embed=embed, view=view)
 
     @commands.command(name="dailyvip")
     async def daily_vip_bonus(self, ctx: commands.Context) -> Optional[discord.Message]:
         """VIP хэрэглэгчийн өдөр тутмын урамшуулал"""
         data = await self.get_user_data(ctx.author.id)
         if not data or not data[1]:  # vip_level
-            return await ctx.send("❌ Та VIP эрхгүй тул энэ командыг ашиглах боломжгүй!")
-
-        # VIP түвшин шалгах
+            return await ctx.send("❌ Та VIP эрхгүй тул энэ командыг ашиглах боломжгүй!")        # VIP түвшин шалгах
         vip_level = data[1]
         if vip_level not in self.vip_levels:
             return await ctx.send("❌ Танай VIP түвшин хүчингүй байна!")
@@ -320,7 +481,7 @@ class VIP(commands.Cog):
                 # Урамшуулал олгох
                 if not await self.update_balance(ctx.author.id, bonus):
                     return await ctx.send("⚠️ Урамшуулал олгоход алдаа гарлаа!")
-
+                
                 # Авсан өдрийг хадгалах
                 await db.execute("UPDATE users1 SET last_claimed = ? WHERE user_id=?", (today, ctx.author.id))
                 await db.commit()
@@ -364,15 +525,23 @@ class VIP(commands.Cog):
 
             level_info = self.vip_levels[level]
             price = level_info["price"]
-            days = level_info["days"]
-
-            # Бэлэглэж байгаа бол хямдрал тооцох
+            days = level_info["days"]            # Бэлэглэж байгаа бол хямдрал тооцох
             if is_gift:
                 if not recipient:
                     await interaction.followup.send("⚠️ Бэлэг хүлээн авагч сонгогдоогүй байна!", ephemeral=True)
                     return
-                    
-                discount = level_info.get("gift_discount", 1.0)
+                
+                # Бэлэглэгчийн VIP түвшингээс хамааруулан хөнгөлөлт тооцох
+                gifter_vip_level = await self.get_vip_level(user.id)
+                
+                if gifter_vip_level and gifter_vip_level in self.vip_levels:
+                    # Бэлэглэгчийн VIP түвшний хөнгөлөлт ашиглах
+                    gifter_vip_info = self.vip_levels[gifter_vip_level]
+                    discount = gifter_vip_info.get("gift_discount", 1.0)
+                else:
+                    # VIP эрхгүй бол хөнгөлөлтгүй
+                    discount = 1.0
+                
                 price = int(price * discount)
 
             # Балансыг шалгах
@@ -439,7 +608,7 @@ class VIP(commands.Cog):
                     description=f"**{user.name}** → **{recipient.name}** руу **{level} VIP** эрхийг **{price:,}₮**-өөр бэлэглэлээ!",
                     color=discord.Color.green()
                 )
-                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%m-%d"), inline=False)
+                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%м-%d"), inline=False)
                 await interaction.followup.send(embed=embed)
             else:
                 embed = discord.Embed(
@@ -449,7 +618,7 @@ class VIP(commands.Cog):
                 embed.set_author(name=user.name)
                 if user.avatar:
                     embed.set_author(name=user.name, icon_url=user.avatar.url)
-                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%m-%d"), inline=False)
+                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%м-%d"), inline=False)
                 embed.add_field(name="🏆 VIP түвшин", value=level, inline=True)
                 embed.add_field(name="💰 Төлсөн дүн", value=f"{price:,}₮", inline=True)
                 embed.set_footer(text="🎟 VIP мэдээлэл харах бол mvip командыг ашиглаарай!")
