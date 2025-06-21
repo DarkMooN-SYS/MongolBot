@@ -3,7 +3,7 @@ from discord.ext import commands
 import discord
 import aiosqlite
 import logging
-from .db_helper import get_db_path
+from .database import get_db_path
 
 logger = logging.getLogger(__name__)
 # Default prefix-г array биш string болгох
@@ -12,7 +12,7 @@ prefixes = {}
 
 async def init_db():
     """Префикс болон серверийн хүснэгтүүд үүсгэх"""
-    async with aiosqlite.connect(get_db_path('main')) as db:
+    async with aiosqlite.connect(get_db_path('bot_config')) as db:
         # Префикс хүснэгт
         await db.execute("""
             CREATE TABLE IF NOT EXISTS prefixes (
@@ -32,7 +32,7 @@ async def init_db():
 async def load_prefixes():
     """Бүх префиксүүдийг датабаазаас ачаалах"""
     try:
-        async with aiosqlite.connect(get_db_path('main')) as db:
+        async with aiosqlite.connect(get_db_path('bot_config')) as db:
             # Хуучин префиксүүдийг ачаалах
             async with db.execute("SELECT guild_id, prefix FROM prefixes") as cursor:
                 async for row in cursor:
@@ -65,7 +65,7 @@ async def set_prefix(guild_id: int, new_prefix: str) -> str:
         return "⚠️ Префикс 15 тэмдэгтээс богино байх ёстой!"
     
     try:
-        async with aiosqlite.connect(get_db_path('main')) as db:
+        async with aiosqlite.connect(get_db_path('bot_config')) as db:
             # prefixes хүснэгтэд хадгалах
             await db.execute(
                 "INSERT OR REPLACE INTO prefixes (guild_id, prefix) VALUES (?, ?)",
