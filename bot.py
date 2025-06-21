@@ -83,7 +83,16 @@ extensions = [
 ]
 # Cog-уудыг зөв дарааллаар ачаалах
 async def load_cogs_and_sync():
-    try:        # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
+    try:
+        # Эхлээд database-уудыг үүсгэх
+        try:
+            await settings.init_db()
+            await settings.load_prefixes()
+            print("✅ Database системүүд бэлэн боллоо")
+        except Exception as e:
+            logger.error(f"❌ Database системийг эхлүүлэхэд алдаа: {e}")
+            
+        # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
         try:
             await bot.load_extension("cogs.economy.vip")
             print("✅ VIP систем ачаалагдлаа")  # Console-д харуулах
