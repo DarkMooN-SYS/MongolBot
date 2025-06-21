@@ -25,7 +25,7 @@ class Lottery(commands.Cog):
         self.jackpot = 0
         self.last_draw = None
         self.winners = []  # [(user_id, amount, date)]
-        self.db_path = os.path.join('mongolbot', 'data', 'lottery.db')
+        self.db_path = os.path.join('data', 'lottery.db')
         self.lottery_task.start()
 
     async def cog_load(self):
