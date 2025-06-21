@@ -18,9 +18,9 @@ if not TOKEN:
     print("❌ DISCORD_BOT_TOKEN байхгүй байна! .env файлаа шалгана уу.")
     exit(1)
 
-# Logging тохиргоо
+# Logging тохиргоо - spam багасгахын тулд WARNING level ашиглах
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,  # INFO-ээс WARNING болгосон
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[
         logging.FileHandler('bot.log', encoding='utf-8'),
@@ -28,8 +28,9 @@ logging.basicConfig(
     ]
 )
 
-# Set up logging
+# Зөвхөн чухал мэдээллүүдийг INFO level-ээр харуулах
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Intents
 intents = discord.Intents.all()
@@ -58,10 +59,12 @@ extensions = [
     'cogs.economy.economy', 
     'cogs.economy.serverbank',
     'cogs.economy.vip',
+
     # Games Cogs
     'cogs.games.buh',
     'cogs.games.horseracing',
     'cogs.games.game',
+    'cogs.games.lottery',
 
     # Admin Cogs
     'cogs.admin.admin',
@@ -80,29 +83,27 @@ extensions = [
 ]
 # Cog-уудыг зөв дарааллаар ачаалах
 async def load_cogs_and_sync():
-    try:
-        # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
+    try:        # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
         try:
             await bot.load_extension("cogs.economy.vip")
-            logger.info("✅ VIP систем ачаалагдлаа")
+            print("✅ VIP систем ачаалагдлаа")  # Console-д харуулах
         except Exception as e:
             logger.error(f"❌ VIP систем ачаалахад алдаа: {e}")
             
         # Дараа нь бусад cog-уудыг ачаална
+        loaded_count = 0
         for extension in extensions:
             if extension != "cogs.economy.vip":  # VIP-ийг давтж ачаалахгүй
                 try:
                     await bot.load_extension(f"{extension}")
-                    logger.info(f"✅ Ачаалсан: {extension}")
+                    loaded_count += 1
                 except Exception as e:
                     logger.error(f"🚨 Ачаалж чадсангүй: {extension} - {e}")
 
-        # Дараа нь бүх командуудыг sync хийнэ
+        print(f"✅ {loaded_count}/{len(extensions)-1} cog амжилттай ачаалагдлаа")  # Тоо харуулах        # Дараа нь бүх командуудыг sync хийнэ
         try:
             synced = await bot.tree.sync()
-            logger.info(f"✅ Slash командууд sync хийгдлээ: {len(synced)} команд")
-            for cmd in synced:
-                logger.info(f"Sync хийгдсэн команд: {cmd.name}")
+            print(f"✅ {len(synced)} slash команд sync хийгдлээ")  # Console-д харуулах
         except Exception as e:
             logger.error(f"❌ Slash команд sync хийхэд алдаа гарлаа: {e}")
 
@@ -111,7 +112,7 @@ async def load_cogs_and_sync():
 
 @bot.event
 async def on_ready():
-    logger.info(f"✅ {bot.user} амжилттай холбогдлоо!")
+    print(f"✅ {bot.user} амжилттай холбогдлоо!")  # Console-д харуулах
     await load_cogs_and_sync()
 
 @bot.event
@@ -175,25 +176,38 @@ async def on_command_error(ctx: commands.Context, error: Exception):
             
         error_embed.set_author(name="⏳ Түр хүлээнэ үү")
         error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
-        message = await ctx.send(embed=error_embed)
         
-        # Cooldown хугацааг хүлээх
-        while cooldown_time > 0:
-            await asyncio.sleep(1)
-            cooldown_time -= 1
+        try:
+            message = await ctx.send(embed=error_embed)
             
-            if cooldown_time > 60:
-                time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
-            else:
-                time_text = f"{cooldown_time} секунд"
+            # Cooldown хугацааг хүлээх
+            while cooldown_time > 0:
+                await asyncio.sleep(1)
+                cooldown_time -= 1
                 
-            error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
-            await message.edit(embed=error_embed)
-            
-        error_embed.color = discord.Color.green()
-        error_embed.set_author(name="✅ Команд бэлэн боллоо")
-        error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
-        await message.edit(embed=error_embed)
+                if cooldown_time > 60:
+                    time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
+                else:
+                    time_text = f"{cooldown_time} секунд"
+                    
+                error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
+                try:
+                    await message.edit(embed=error_embed)
+                except (discord.NotFound, discord.HTTPException, RuntimeError):
+                    # Мессеж устсан эсвэл session хаагдсан бол loop-ээс гарах
+                    break
+                    
+            try:
+                error_embed.color = discord.Color.green()
+                error_embed.set_author(name="✅ Команд бэлэн боллоо")
+                error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
+                await message.edit(embed=error_embed)
+            except (discord.NotFound, discord.HTTPException, RuntimeError):
+                # Мессеж устсан эсвэл session хаагдсан бол алгасах
+                pass
+        except (discord.Forbidden, RuntimeError, discord.ConnectionClosed, discord.HTTPException):
+            # Мессеж илгээх эрхгүй эсвэл session хаагдсан бол алгасах
+            pass
         return
         
     elif isinstance(error, commands.MissingPermissions):
@@ -263,6 +277,14 @@ async def on_command_error(ctx: commands.Context, error: Exception):
         await message.delete()
     except discord.Forbidden:
         pass  # Хэрэв мессеж илгээх эрх байхгүй бол алгасах
+    except (RuntimeError, discord.ConnectionClosed, discord.HTTPException):
+        # Session хаагдсан эсвэл холболт тасарсан бол алгасах
+        logger.warning("Discord session хаагдсан эсвэл холболт тасарсан тул алдааны мессеж илгээж чадсангүй")
+        pass
+    except Exception as send_error:
+        # Бусад алдаануудыг log-д бичих
+        logger.error(f"Алдааны мессеж илгээхэд алдаа гарлаа: {send_error}")
+        pass
 
 bot.remove_command("help")
 

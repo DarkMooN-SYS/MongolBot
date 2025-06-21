@@ -233,7 +233,7 @@ class Bank(commands.Cog):
         
         financial_status = (
             f"📈 Хадгаламж: {savings_balance:,} ₮\n"
-            f"📉 Зээл: {loan_balance:,} ₮\n"
+            f"📉 Зээл: -{loan_balance:,} ₮\n"
             f"📊 Нийт: {bank_balance + savings_balance - loan_balance:,} ₮{vip_status}"
         )
         embed.add_field(
@@ -278,8 +278,8 @@ class Bank(commands.Cog):
         loan_info = (
             f"💸 **Зээл авах**: `mloan <дүн>`\n"
             f"💳 **Төлөх**: `mpayloan <дүн>`\n"
-            f"� **Дээд хэмжээ**: {max_loan:,}₮{vip_info}\n"
-            f"�📊 **Хүү**: 7 хоног тутамд {interest_rate*100:.1f}%"
+            f"💰 **Дээд хэмжээ**: {max_loan:,}₮{vip_info}\n"
+            f"📊 **Хүү**: 7 хоног тутамд {interest_rate*100:.1f}%"
         )
         embed.add_field(
             name="💳 Зээлийн үйлчилгээ",
@@ -393,16 +393,21 @@ class Bank(commands.Cog):
         if converted_amount <= 0:
             await ctx.send("⚠️ Хадгаламжинд хийх мөнгө 0-с их байх ёстой!")
             return None
+        try:
+            bank_balance = await self.get_balance(ctx.author.id, "bank")
+            if bank_balance < converted_amount:
+                await ctx.send("⚠️ Таны банкны үлдэгдэл хүрэлцэхгүй байна!")
+                return None
 
-        bank_balance = await self.get_balance(ctx.author.id, "bank")
-        if bank_balance < converted_amount:
-            await ctx.send("⚠️ Таны банкны үлдэгдэл хүрэлцэхгүй байна!")
+            await self.update_balance("bank", ctx.author.id, -converted_amount)
+            await self.update_balance("savings", ctx.author.id, converted_amount, "hadgalamj_date")
+            await ctx.send(f"✅ **{converted_amount:,}₮** хадгаламжинд нэмэгдлээ!")
             return None
 
-        await self.update_balance("bank", ctx.author.id, -converted_amount)
-        await self.update_balance("savings", ctx.author.id, converted_amount, "hadgalamj_date")
-        await ctx.send(f"✅ **{converted_amount:,}₮** хадгаламжинд нэмэгдлээ!")
-        return None
+        except Exception as e:
+            logging.error(f"Error during save: {e}")
+            await ctx.send("⚠️ Хадгаламжийн системд алдаа гарлаа.")
+            return None
 
     @commands.command(name='witsave', aliases=['ws'])
     async def withdrawsave(self, ctx: commands.Context, amount: str) -> None:

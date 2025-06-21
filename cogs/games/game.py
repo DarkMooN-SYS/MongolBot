@@ -204,8 +204,8 @@ class Game(commands.Cog):
             choice = 'tails'
         else:
             await ctx.send("Зөвхөн 'heads' эсвэл 'tails' сонгоно уу!")
-            return
-        if self.win_streak[user_id] >= 2:
+            return        # Win streak penalty багасгах (3 удаа дараалан хожсон үед л алдуулах)
+        if self.win_streak[user_id] >= 3:
             outcome = 'heads' if choice == 'tails' else 'tails'
             self.win_streak[user_id] = 0
         else:
@@ -258,8 +258,8 @@ class Game(commands.Cog):
         choice = (choice or '').lower()
         if choice not in ['red', 'black', 'green']:
             await ctx.send("Зөвхөн сонголтууд: **red**, **black**, **green**.")
-            return
-        if self.win_streak[user_id] >= 2:
+            return        # Roulette win streak penalty багасгах
+        if self.win_streak[user_id] >= 3:
             outcome = random.choice([c for c in ['red', 'black', 'green'] if c != choice])
             self.win_streak[user_id] = 0
         else:
@@ -316,8 +316,8 @@ class Game(commands.Cog):
             await ctx.send("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!")
             return
         if user_id not in self.win_streaks:
-            self.win_streaks[user_id] = 0
-        if random.randint(1, 100) <= 60:
+            self.win_streaks[user_id] = 0        # Slots машины алдах магадлалыг 60%-ээс 45% болгох
+        if random.randint(1, 100) <= 50:
             slot_result = random.sample(["🍒", "💎", "🍌", "🥝", "🎰"], 3)
             self.win_streaks[user_id] = 0
         else:
@@ -410,7 +410,7 @@ class Game(commands.Cog):
             await ctx.send("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!")
             return
         view = discord.ui.View(timeout=None)
-        sizes = {"3x3": (3, 3), "4x4": (4, 5)}
+        sizes = {"3x3": (3, 2), "4x4": (4, 3)}
         for label, (dimension, bombs) in sizes.items():
             button = discord.ui.Button(label=label, style=discord.ButtonStyle.primary)
             async def callback(interaction: discord.Interaction, dim: int = dimension, bom: int = bombs):

@@ -115,9 +115,11 @@ class VIPDetailView(discord.ui.View):
             await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
         await interaction.response.defer()
-        # Clear the active session before processing purchase
+        
+        # Process VIP purchase
+        await self.vip_cog.process_vip_purchase(interaction, interaction.user, self.level, False, None)
+          # Clear the active session after successful processing
         self.vip_cog._active_sessions.discard(self.original_user.id)
-        await self.vip_cog.process_vip_purchase(interaction, interaction.user, self.level)
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="cancel_purchase")
     async def cancel_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -125,6 +127,10 @@ class VIPDetailView(discord.ui.View):
             await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
         await interaction.response.defer()
+        
+        # Clear the active session when cancelled
+        self.vip_cog._active_sessions.discard(self.original_user.id)
+        
         # Return to main VIP selection
         view = VIPButtons(self.vip_cog, self.original_user)
         await interaction.edit_original_response(embed=self.original_embed, view=view)
@@ -599,16 +605,14 @@ class VIP(commands.Cog):
                         WHERE user_id=?
                     """, (user.id,))
 
-                await db.commit()
-
-            # Амжилттай гүйлгээний мессэж
+                await db.commit()            # Амжилттай гүйлгээний мессэж
             if is_gift and recipient:
                 embed = discord.Embed(
                     title="🎁 VIP эрх бэлэглэлээ!",
                     description=f"**{user.name}** → **{recipient.name}** руу **{level} VIP** эрхийг **{price:,}₮**-өөр бэлэглэлээ!",
                     color=discord.Color.green()
                 )
-                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%м-%d"), inline=False)
+                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%m-%d"), inline=False)
                 await interaction.followup.send(embed=embed)
             else:
                 embed = discord.Embed(
@@ -618,7 +622,7 @@ class VIP(commands.Cog):
                 embed.set_author(name=user.name)
                 if user.avatar:
                     embed.set_author(name=user.name, icon_url=user.avatar.url)
-                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%м-%d"), inline=False)
+                embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%m-%d"), inline=False)
                 embed.add_field(name="🏆 VIP түвшин", value=level, inline=True)
                 embed.add_field(name="💰 Төлсөн дүн", value=f"{price:,}₮", inline=True)
                 embed.set_footer(text="🎟 VIP мэдээлэл харах бол mvip командыг ашиглаарай!")
@@ -626,6 +630,9 @@ class VIP(commands.Cog):
 
         except Exception as e:
             logger.error(f"VIP худалдан авахад алдаа гарлаа: {e}")
+            # Clear active session on error
+            if user:
+                self._active_sessions.discard(user.id)
             await interaction.followup.send("⚠️ VIP авах үед алдаа гарлаа. Та дахин оролдоно уу!", ephemeral=True)
 
     @tasks.loop(hours=1)

@@ -62,7 +62,7 @@ class DatabaseManager:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute("PRAGMA cache_size=1000;")
-            logger.info(f"✅ {db_name} database-д амжилттай холбогдлоо: {db_path}")
+            logger.debug(f"✅ {db_name} database-д амжилттай холбогдлоо: {db_path}")
             return conn
         except Exception as e:
             logger.error(f"❌ {db_name} database холболтод алдаа: {e}")
@@ -83,7 +83,7 @@ class DatabaseManager:
             await conn.execute("PRAGMA journal_mode=WAL;")
             await conn.execute("PRAGMA synchronous=NORMAL;")
             await conn.execute("PRAGMA cache_size=1000;")
-            logger.info(f"✅ {db_name} async database-д амжилттай холбогдлоо: {db_path}")
+            logger.debug(f"✅ {db_name} async database-д амжилттай холбогдлоо: {db_path}")
             return conn
         except Exception as e:
             logger.error(f"❌ {db_name} async database холболтод алдаа: {e}")
@@ -103,7 +103,7 @@ class AsyncDBConnection:
             await self.conn.execute("PRAGMA journal_mode=WAL;")
             await self.conn.execute("PRAGMA synchronous=NORMAL;")
             await self.conn.execute("PRAGMA cache_size=1000;")
-            logger.info(f"✅ {self.db_name} async database-д амжилттай холбогдлоо: {self.db_path}")
+            logger.debug(f"✅ {self.db_name} async database-д амжилттай холбогдлоо: {self.db_path}")
             return self.conn
         except Exception as e:
             logger.error(f"❌ {self.db_name} async database холболтод алдаа: {e}")
