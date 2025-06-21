@@ -213,11 +213,14 @@ class MoneyGiveawayModal(discord.ui.Modal):
             if interaction.user.id in participants:
                 await interaction.response.send_message("⚠️ Та giveaway-д аль хэдийн орсон байна!", ephemeral=True)
             else:
+                # Эхлээд response илгээх
+                await interaction.response.send_message("💰 Та мөнгөн шагналын giveaway-д оролцлоо!", ephemeral=True)
+                
+                # Дараа нь participants-д нэмж embed update хийх
                 participants.add(interaction.user.id)
                 participant_field_index = 4 if not (self.is_owner_giveaway and hasattr(self, 'requirement') and self.requirement.value) else 5
                 embed.set_field_at(participant_field_index, name="👤 Нийт оролцогчид", value=str(len(participants)), inline=False)
                 await giveaway_message.edit(embed=embed)
-                await interaction.response.send_message("💰 Та мөнгөн шагналын giveaway-д оролцлоо!", ephemeral=True)
 
         enter_button.callback = enter_giveaway_callback
         view = discord.ui.View(timeout=None)
@@ -460,13 +463,16 @@ class GiveawayModal(discord.ui.Modal):
                 if interaction.user.id in participants:
                     await interaction.response.send_message("⚠️ Та giveaway-д аль хэдийн орсон байна!", ephemeral=True)
                 else:
+                    # Эхлээд response илгээх
+                    success_msg = "✅ Та giveaway-д оролцлоо!" if not self.is_owner_giveaway else "👑 Та Owner Giveaway-д оролцлоо!"
+                    await interaction.response.send_message(success_msg, ephemeral=True)
+                    
+                    # Дараа нь participants-д нэмж embed update хийх
                     participants.add(interaction.user.id)
                     # Field index шалгах (тусгай шаардлага байвал field нэмэгддэг)
                     participant_field_index = 4 if not (self.is_owner_giveaway and hasattr(self, 'requirement') and self.requirement.value) else 5
                     embed.set_field_at(participant_field_index, name="👤 Нийт оролцогчид", value=str(len(participants)), inline=False)
                     await giveaway_message.edit(embed=embed)
-                    success_msg = "✅ Та giveaway-д оролцлоо!" if not self.is_owner_giveaway else "👑 Та Owner Giveaway-д оролцлоо!"
-                    await interaction.response.send_message(success_msg, ephemeral=True)
 
             enter_button.callback = enter_giveaway_callback
 
