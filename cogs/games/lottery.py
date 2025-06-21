@@ -86,21 +86,29 @@ class Lottery(commands.Cog):
 
     async def save_lottery_data(self):
         """Одоогийн мэдээллийг database-д хадгалах"""
-        async with aiosqlite.connect(self.db_path) as db:
-            # Тасалбарууд хадгалах
-            await db.execute('DELETE FROM tickets')
-            for user_id, count in self.tickets.items():
-                await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
-                               (user_id, count))
+        try:
+            # Database болон table-г эхлээд шалгаж байна
+            await self.init_database()
             
-            # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
-            last_draw_str = self.last_draw.isoformat() if self.last_draw else None
-            await db.execute('''
-                INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
-                VALUES (1, ?, ?)
-            ''', (self.jackpot, last_draw_str))
-            
-            await db.commit()
+            async with aiosqlite.connect(self.db_path) as db:
+                # Тасалбарууд хадгалах
+                await db.execute('DELETE FROM tickets')
+                for user_id, count in self.tickets.items():
+                    await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
+                                   (user_id, count))
+                
+                # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
+                last_draw_str = self.last_draw.isoformat() if self.last_draw else None
+                await db.execute('''
+                    INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
+                    VALUES (1, ?, ?)
+                ''', (self.jackpot, last_draw_str))
+                
+                await db.commit()
+        except Exception as e:
+            print(f"Lottery data хадгалахад алдаа: {e}")
+            # Database алдаа гарвал дахин үүсгэж оролдох
+            await self.init_database()
 
     async def add_winner(self, user_id: int, amount: int, date: datetime):
         """Ялагчийг database-д хадгалах"""
@@ -246,63 +254,71 @@ class Lottery(commands.Cog):
 
     @tasks.loop(hours=24)
     async def lottery_task(self):
-        now = datetime.utcnow()
-        if self.last_draw is None:
-            self.last_draw = now
-            await self.save_lottery_data()  # Анхны огноог хадгалах
-        elif (now - self.last_draw).days >= LOTTERY_INTERVAL_DAYS:
-            guild = self.bot.get_guild(1297446169995251712)
-            channel = guild.get_channel(1297446170003767383) if guild else None
-            if self.tickets and isinstance(channel, discord.TextChannel):
-                pool = []
-                for user_id, count in self.tickets.items():
-                    pool.extend([user_id] * count)
-                winner_id = random.choice(pool)
-                winner = guild.get_member(winner_id) if guild else None
-                amount = self.jackpot  # Winner gets the full jackpot
-                # Ялагчийг database-д хадгалах
-                await self.add_winner(winner_id, amount, now)
-                # --- Jackpot-ыг ялагчийн дансанд бүрэн шилжүүлэх ---
-                bank = self.bank
-                jackpot_added = False
-                if bank and winner:
-                    update_balance = getattr(bank, "update_balance", None)  # type: ignore[attr-defined]
-                    if callable(update_balance):
-                        try:
-                            await update_balance('bank', winner_id, amount)  # type: ignore[misc]
-                            jackpot_added = True
-                        except Exception:
-                            pass  # Алдаа гарсан ч үргэлжлүүлнэ
-                
-                embed = discord.Embed(
-                    title='🎉🏆 СУГАЛААНЫ ЯЛАГЧ ТОДОРЛОО! 🏆🎉',
-                    description=(
-                        f'🎊 **Баяр хүргэе!** Сугалааны азтан тодорлоо!\n\n'
-                        f'💰 **Jackpot:** {amount:,}₮\n'
-                        f'🏆 **Ялагч:** {winner.mention if winner else f"ID: {winner_id}"}\n'
-                        f'🎟️ **Оролцогчдын тоо:** {len(self.tickets)}\n\n'
-                        + ('✅ **Jackpot амжилттай дансанд шилжлээ!**' if jackpot_added else '⚠️ **Jackpot дансанд нэмэхэд алдаа гарлаа!**')
-                    ),
-                    color=discord.Color.gold(),
-                    timestamp=get_mongolia_time()
-                )
-                embed.set_thumbnail(url='https://cdn.discordapp.com/emojis/1234567890.gif' if winner and winner.avatar else None)
-                embed.add_field(
-                    name='🎯 Дараагийн сугалаа',
-                    value=f'30 хоногийн дараа!\nТасалбар авахыг мартуузай! (`/buylottery`)',
-                    inline=False
-                )
-                embed.set_footer(
-                    text='МонголБот • Сугалааны систем',
-                    icon_url=self.bot.user.avatar.url if self.bot.user and self.bot.user.avatar else None
-                )
-                
-                await channel.send(content='@everyone 🎉 **СУГАЛААНЫ ҮНДЭСНИЙ ЯЛАГЧ ТОДОРЛОО!** 🎉', embed=embed)
-                self.tickets.clear()
-                self.jackpot = 0
+        try:
+            now = datetime.utcnow()
+            if self.last_draw is None:
                 self.last_draw = now
-                # Database-д өөрчлөлт хадгалах
-                await self.save_lottery_data()
+                await self.save_lottery_data()  # Анхны огноог хадгалах
+            elif (now - self.last_draw).days >= LOTTERY_INTERVAL_DAYS:
+                guild = self.bot.get_guild(1297446169995251712)
+                channel = guild.get_channel(1297446170003767383) if guild else None
+                if self.tickets and isinstance(channel, discord.TextChannel):
+                    pool = []
+                    for user_id, count in self.tickets.items():
+                        pool.extend([user_id] * count)
+                    winner_id = random.choice(pool)
+                    winner = guild.get_member(winner_id) if guild else None
+                    amount = self.jackpot  # Winner gets the full jackpot
+                    # Ялагчийг database-д хадгалах
+                    await self.add_winner(winner_id, amount, now)
+                    # --- Jackpot-ыг ялагчийн дансанд бүрэн шилжүүлэх ---
+                    bank = self.bank
+                    jackpot_added = False
+                    if bank and winner:
+                        update_balance = getattr(bank, "update_balance", None)  # type: ignore[attr-defined]
+                        if callable(update_balance):
+                            try:
+                                await update_balance('bank', winner_id, amount)  # type: ignore[misc]
+                                jackpot_added = True
+                            except Exception:
+                                pass  # Алдаа гарсан ч үргэлжлүүлнэ
+                    
+                    embed = discord.Embed(
+                        title='🎉🏆 СУГАЛААНЫ ЯЛАГЧ ТОДОРЛОО! 🏆🎉',
+                        description=(
+                            f'🎊 **Баяр хүргэе!** Сугалааны азтан тодорлоо!\n\n'
+                            f'💰 **Jackpot:** {amount:,}₮\n'
+                            f'🏆 **Ялагч:** {winner.mention if winner else f"ID: {winner_id}"}\n'
+                            f'🎟️ **Оролцогчдын тоо:** {len(self.tickets)}\n\n'
+                            + ('✅ **Jackpot амжилттай дансанд шилжлээ!**' if jackpot_added else '⚠️ **Jackpot дансанд нэмэхэд алдаа гарлаа!**')
+                        ),
+                        color=discord.Color.gold(),
+                        timestamp=get_mongolia_time()
+                    )
+                    embed.set_thumbnail(url='https://cdn.discordapp.com/emojis/1234567890.gif' if winner and winner.avatar else None)
+                    embed.add_field(
+                        name='🎯 Дараагийн сугалаа',
+                        value=f'30 хоногийн дараа!\nТасалбар авахыг мартуузай! (`/buylottery`)',
+                        inline=False
+                    )
+                    embed.set_footer(
+                        text='МонголБот • Сугалааны систем',
+                        icon_url=self.bot.user.avatar.url if self.bot.user and self.bot.user.avatar else None
+                    )
+                    
+                    await channel.send(content='@everyone 🎉 **СУГАЛААНЫ ҮНДЭСНИЙ ЯЛАГЧ ТОДОРЛОО!** 🎉', embed=embed)
+                    self.tickets.clear()
+                    self.jackpot = 0
+                    self.last_draw = now
+                    # Database-д өөрчлөлт хадгалах
+                    await self.save_lottery_data()
+        except Exception as e:
+            print(f"Lottery task алдаа: {e}")
+            # Database алдаа гарвал дахин эхлүүлэх оролдлого
+            try:
+                await self.init_database()
+            except Exception as init_error:
+                print(f"Database дахин эхлүүлэхэд алдаа: {init_error}")
 
     @lottery_task.before_loop
     async def before_lottery_task(self):
