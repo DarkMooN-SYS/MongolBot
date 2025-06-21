@@ -274,6 +274,41 @@ class Economy(commands.Cog):
             await ctx.send("⚠️ Алдаа гарлаа! Дахин оролдоно уу.")
             logging.error(f"Error in madd command: {e}")
 
+    @commands.command(name='remove')
+    @commands.is_owner()
+    async def remove(self, ctx: commands.Context, account_type: str, user: discord.Member, amount: str) -> None:
+        """Админ хэрэглэгчийн банк эсвэл баланснаас мөнгө хасах."""
+        await self.ensure_connection()
+
+        amt = self.number(amount)
+        if isinstance(amt, str) or amt <= 0:
+            await ctx.send("⚠️ Оруулсан хэмжээ хүчинтэй тоо биш байна!")
+            return
+
+        if account_type.lower() == "bank":
+            table = "bank"
+        elif account_type.lower() == "bal":
+            table = "economy"
+        else:
+            await ctx.send("⚠️ Буруу аккаунтын төрөл! `remove bank @user 1k` эсвэл `remove bal @user 1m` гэж ашиглана уу.")
+            return
+
+        try:
+            if table == "economy":
+                current_balance = await self.get_user_balance(user.id)
+            else:
+                current_balance = await self.get_balance(user.id, "bank")
+
+            if amt > current_balance:
+                await ctx.send(f"⚠️ {user.mention}-ийн **{table}** данснаас **{amt:,}₮** хасах боломжгүй! (Одоогийн баланс: {current_balance:,}₮)")
+                return
+
+            await self.update_balance(table, user.id, -amt)
+            await ctx.send(f"✅ {amt:,} төгрөг {user.mention}-ийн **{table}** данснаас хасагдлаа!")
+        except Exception as e:
+            await ctx.send("⚠️ Алдаа гарлаа! Дахин оролдоно уу.")
+            logging.error(f"Error in remove command: {e}")
+
     @commands.command(name='top')
     async def top(self, ctx: commands.Context) -> None:
         """Эдийн засгийн хамгийн баян 10 хэрэглэгчийн жагсаалт"""
