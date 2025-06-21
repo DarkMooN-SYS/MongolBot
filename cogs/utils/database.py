@@ -17,10 +17,9 @@ class DatabaseManager:
         # Database файлуудын зам тогтоох
         self.base_path = Path(__file__).parent.parent.parent / "data"
         self.base_path.mkdir(exist_ok=True)  # data фолдерыг үүсгэх
-        
-        # Database файлуудын бүрэн зам
+          # Database файлуудын бүрэн зам
         self.databases = {
-            'main': self.base_path / "bot.db",
+            'bot_config': self.base_path / "bot.db",  # Bot configuration, prefixes, guilds
             'economy': self.base_path / "economy.db", 
             'birthdays': self.base_path / "birthdays.db",
             'giveaways': self.base_path / "giveaways.db",
@@ -36,7 +35,7 @@ class DatabaseManager:
         """Database файлын зам авах
         
         Args:
-            db_name: Database нэр ('main', 'economy', гэх мэт)
+            db_name: Database нэр ('bot_config', 'economy', гэх мэт)
             
         Returns:
             str: Database файлын бүрэн зам

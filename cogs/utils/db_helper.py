@@ -15,7 +15,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 # Database файлуудын жагсаалт
 DATABASES = {
-    'main': 'bot.db',
+    'bot_config': 'bot.db',  # Bot configuration, prefixes, guilds
     'economy': 'economy.db',
     'birthdays': 'birthdays.db',
     'giveaways': 'giveaways.db',
@@ -51,7 +51,7 @@ async def get_async_connection(db_name: str) -> aiosqlite.Connection:
     await conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
-def get_db_connection(db_name: str = 'main') -> sqlite3.Connection:
+def get_db_connection(db_name: str = 'bot_config') -> sqlite3.Connection:
     """Ерөнхий database холболт авах функц (backwards compatibility)"""
     return get_sync_connection(db_name)
 
@@ -62,7 +62,7 @@ def get_economy_db() -> sqlite3.Connection:
 
 def get_main_db() -> sqlite3.Connection:
     """Main bot database холболт"""
-    return get_sync_connection('main')
+    return get_sync_connection('bot_config')
 
 def get_buh_db() -> sqlite3.Connection:
     """Buh game database холболт"""
@@ -100,7 +100,7 @@ def get_disabled_channels_db() -> sqlite3.Connection:
 class DatabaseConnection:
     """Database холболтын context manager"""
     
-    def __init__(self, db_name: str = 'main'):
+    def __init__(self, db_name: str = 'bot_config'):
         self.db_name = db_name
         self.conn = None
     
@@ -116,7 +116,7 @@ class DatabaseConnection:
 class AsyncDatabaseConnection:
     """Асинхрон database холболтын context manager"""
     
-    def __init__(self, db_name: str = 'main'):
+    def __init__(self, db_name: str = 'bot_config'):
         self.db_name = db_name
         self.conn = None
     
