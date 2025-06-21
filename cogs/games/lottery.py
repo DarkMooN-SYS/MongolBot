@@ -8,6 +8,7 @@ from .vip_utils import get_vip_level
 from typing import Any
 import aiosqlite
 import os
+from pathlib import Path
 
 TICKET_PRICE = 300_000
 MAX_TICKETS_PER_USER = 2 # Суурь тасалбарын тоо
@@ -25,7 +26,12 @@ class Lottery(commands.Cog):
         self.jackpot = 0
         self.last_draw = None
         self.winners = []  # [(user_id, amount, date)]
-        self.db_path = os.path.join('data', 'lottery.db')
+        
+        # Database path-ийг илүү найдвартай болгох
+        self.data_dir = Path(__file__).parent.parent.parent / 'data'
+        self.data_dir.mkdir(exist_ok=True)
+        self.db_path = self.data_dir / 'lottery.db'
+        
         self.lottery_task.start()
 
     async def cog_load(self):
@@ -35,54 +41,70 @@ class Lottery(commands.Cog):
 
     async def init_database(self):
         """Lottery database үүсгэх"""
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        async with aiosqlite.connect(self.db_path) as db:
-            # Тасалбарууд хадгалах хүснэгт
-            await db.execute('''
-                CREATE TABLE IF NOT EXISTS tickets (
-                    user_id INTEGER PRIMARY KEY,
-                    ticket_count INTEGER DEFAULT 0
-                )
-            ''')
-            # Сугалааны мэдээлэл хадгалах хүснэгт
-            await db.execute('''
-                CREATE TABLE IF NOT EXISTS lottery_info (
-                    id INTEGER PRIMARY KEY,
-                    jackpot INTEGER DEFAULT 0,
-                    last_draw TEXT
-                )
-            ''')
-            # Ялагчдын түүх хадгалах хүснэгт
-            await db.execute('''
-                CREATE TABLE IF NOT EXISTS winners (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
-                    amount INTEGER,
-                    date TEXT
-                )
-            ''')
-            await db.commit()
+        try:
+            # Folder үүсгэх
+            self.data_dir.mkdir(exist_ok=True)
+            
+            async with aiosqlite.connect(str(self.db_path)) as db:
+                # Database файл зөв үүсч байгаа эсэхийг шалгах
+                await db.execute('SELECT 1')
+                
+                # Тасалбарууд хадгалах хүснэгт
+                await db.execute('''
+                    CREATE TABLE IF NOT EXISTS tickets (
+                        user_id INTEGER PRIMARY KEY,
+                        ticket_count INTEGER DEFAULT 0
+                    )
+                ''')
+                # Сугалааны мэдээлэл хадгалах хүснэгт
+                await db.execute('''
+                    CREATE TABLE IF NOT EXISTS lottery_info (
+                        id INTEGER PRIMARY KEY,
+                        jackpot INTEGER DEFAULT 0,
+                        last_draw TEXT
+                    )
+                ''')
+                # Ялагчдын түүх хадгалах хүснэгт
+                await db.execute('''
+                    CREATE TABLE IF NOT EXISTS winners (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER,
+                        amount INTEGER,
+                        date TEXT
+                    )                ''')
+                await db.commit()
+                print(f"✅ Lottery database амжилттай үүслээ: {self.db_path}")
+                
+        except Exception as e:
+            print(f"❌ Lottery database үүсгэхэд алдаа: {e}")
+            raise
 
     async def load_lottery_data(self):
         """Database-ээс өгөгдөл уншиж memory-д ачаалах"""
-        async with aiosqlite.connect(self.db_path) as db:
-            # Тасалбарууд ачаалах
-            async with db.execute('SELECT user_id, ticket_count FROM tickets') as cursor:
-                async for row in cursor:
-                    self.tickets[row[0]] = row[1]
-            
-            # Jackpot болон сүүлийн сугалааны мэдээлэл ачаалах
-            async with db.execute('SELECT jackpot, last_draw FROM lottery_info WHERE id = 1') as cursor:
-                row = await cursor.fetchone()
-                if row:
-                    self.jackpot = row[0]
-                    if row[1]:
-                        self.last_draw = datetime.fromisoformat(row[1])
-            
-            # Ялагчдын түүх ачаалах
-            async with db.execute('SELECT user_id, amount, date FROM winners ORDER BY id DESC LIMIT 10') as cursor:
-                async for row in cursor:
-                    self.winners.append((row[0], row[1], datetime.fromisoformat(row[2])))
+        try:
+            async with aiosqlite.connect(str(self.db_path)) as db:
+                # Тасалбарууд ачаалах
+                async with db.execute('SELECT user_id, ticket_count FROM tickets') as cursor:
+                    async for row in cursor:
+                        self.tickets[row[0]] = row[1]
+                
+                # Jackpot болон сүүлийн сугалааны мэдээлэл ачаалах
+                async with db.execute('SELECT jackpot, last_draw FROM lottery_info WHERE id = 1') as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        self.jackpot = row[0]
+                        if row[1]:
+                            self.last_draw = datetime.fromisoformat(row[1])
+                
+                # Ялагчдын түүх ачаалах
+                async with db.execute('SELECT user_id, amount, date FROM winners ORDER BY id DESC LIMIT 10') as cursor:
+                    async for row in cursor:
+                        self.winners.append((row[0], row[1], datetime.fromisoformat(row[2])))
+                        
+                print(f"✅ Lottery data амжилттай ачаалагдлаа: {len(self.tickets)} тасалбар, jackpot: {self.jackpot:,}₮")
+                
+        except Exception as e:
+            print(f"❌ Lottery data ачаалахад алдаа: {e}")
 
     async def save_lottery_data(self):
         """Одоогийн мэдээллийг database-д хадгалах"""
@@ -90,36 +112,53 @@ class Lottery(commands.Cog):
             # Database болон table-г эхлээд шалгаж байна
             await self.init_database()
             
-            async with aiosqlite.connect(self.db_path) as db:
-                # Тасалбарууд хадгалах
-                await db.execute('DELETE FROM tickets')
-                for user_id, count in self.tickets.items():
-                    await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
-                                   (user_id, count))
+            async with aiosqlite.connect(str(self.db_path)) as db:
+                # Transaction ашиглах
+                await db.execute('BEGIN TRANSACTION')
                 
-                # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
-                last_draw_str = self.last_draw.isoformat() if self.last_draw else None
-                await db.execute('''
-                    INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
-                    VALUES (1, ?, ?)
-                ''', (self.jackpot, last_draw_str))
-                
-                await db.commit()
+                try:
+                    # Тасалбарууд хадгалах
+                    await db.execute('DELETE FROM tickets')
+                    for user_id, count in self.tickets.items():
+                        await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
+                                       (user_id, count))
+                    
+                    # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
+                    last_draw_str = self.last_draw.isoformat() if self.last_draw else None
+                    await db.execute('''
+                        INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
+                        VALUES (1, ?, ?)
+                    ''', (self.jackpot, last_draw_str))
+                    
+                    await db.execute('COMMIT')
+                    print(f"✅ Lottery data амжилттай хадгалагдлаа")
+                    
+                except Exception as e:
+                    await db.execute('ROLLBACK')
+                    print(f"❌ Transaction rollback: {e}")
+                    raise
+                    
         except Exception as e:
-            print(f"Lottery data хадгалахад алдаа: {e}")
+            print(f"❌ Lottery data хадгалахад алдаа: {e}")
             # Database алдаа гарвал дахин үүсгэж оролдох
-            await self.init_database()
+            try:
+                await self.init_database()
+            except Exception as init_error:
+                print(f"❌ Database дахин эхлүүлэхэд алдаа: {init_error}")
 
     async def add_winner(self, user_id: int, amount: int, date: datetime):
         """Ялагчийг database-д хадгалах"""
-        async with aiosqlite.connect(self.db_path) as db:
-            await db.execute('INSERT INTO winners (user_id, amount, date) VALUES (?, ?, ?)', 
-                           (user_id, amount, date.isoformat()))
-            await db.commit()
-        self.winners.insert(0, (user_id, amount, date))
-        # Зөвхөн сүүлийн 10 ялагчийг memory-д хадгалах
-        if len(self.winners) > 10:
-            self.winners = self.winners[:10]
+        try:
+            async with aiosqlite.connect(str(self.db_path)) as db:
+                await db.execute('INSERT INTO winners (user_id, amount, date) VALUES (?, ?, ?)', 
+                               (user_id, amount, date.isoformat()))
+                await db.commit()
+            self.winners.insert(0, (user_id, amount, date))
+            # Зөвхөн сүүлийн 10 ялагчийг memory-д хадгалах
+            if len(self.winners) > 10:
+                self.winners = self.winners[:10]
+        except Exception as e:
+            print(f"❌ Winner хадгалахад алдаа: {e}")
 
     async def cog_unload(self):
         """Cog унтрахад өгөгдлийг хадгалах"""
@@ -383,6 +422,50 @@ class Lottery(commands.Cog):
         # Database-д өөрчлөлт хадгалах
         await self.save_lottery_data()
         await ctx.send('Тест сугалаа амжилттай гүйцэтгэлээ.')
+
+    async def test_database_connection(self):
+        """Database холболт шалгах"""
+        try:
+            async with aiosqlite.connect(str(self.db_path)) as db:
+                # Simple query ажиллуулах
+                cursor = await db.execute('SELECT COUNT(*) FROM tickets')
+                count = await cursor.fetchone()
+                print(f"✅ Database холболт амжилттай. Tickets тоо: {count[0] if count else 0}")
+                return True
+        except Exception as e:
+            print(f"❌ Database холболтын алдаа: {e}")
+            return False
+
+    @commands.command(name='lotterydb', hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def lottery_db_test(self, ctx: commands.Context):
+        """Database холболт шалгах"""
+        
+        embed = discord.Embed(title="🗄️ Lottery Database шалгалт", color=discord.Color.blue())
+        
+        # Database файл байгаа эсэх
+        if self.db_path.exists():
+            embed.add_field(name="📁 Database файл", value="✅ Байна", inline=True)
+            embed.add_field(name="📍 Байршил", value=f"`{self.db_path}`", inline=False)
+        else:
+            embed.add_field(name="📁 Database файл", value="❌ Байхгүй", inline=True)
+        
+        # Холболт шалгах
+        connection_ok = await self.test_database_connection()
+        embed.add_field(name="🔗 Холболт", value="✅ Амжилттай" if connection_ok else "❌ Алдаатай", inline=True)
+        
+        # Memory дэх өгөгдөл
+        embed.add_field(name="🎟️ Tickets (memory)", value=str(len(self.tickets)), inline=True)
+        embed.add_field(name="💰 Jackpot", value=f"{self.jackpot:,}₮", inline=True)
+        embed.add_field(name="🏆 Winners", value=str(len(self.winners)), inline=True)
+        
+        # Last draw
+        if self.last_draw:
+            embed.add_field(name="📅 Сүүлийн сугалаа", value=self.last_draw.strftime('%Y-%m-%d %H:%M'), inline=True)
+        else:
+            embed.add_field(name="📅 Сүүлийн сугалаа", value="Байхгүй", inline=True)
+        
+        await ctx.send(embed=embed)
 
 async def setup(bot: commands.Bot):
     lottery_cog = Lottery(bot)

@@ -4,3 +4,4 @@ db_analyzer.py
 quick_stats.py
 bot.log
 data/
+.env
