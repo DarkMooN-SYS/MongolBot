@@ -51,6 +51,12 @@ bot.owner_id = 751055793893146624  # Change this to your Discord ID
 
 # Extensions list шинэчлэх 
 extensions = [
+
+    # Utils Cogs
+    'cogs.utils.support',
+    'cogs.utils.help',
+    'cogs.utils.channel',
+
     # Music Cogs
     'cogs.music.music',
     
@@ -78,11 +84,6 @@ extensions = [
     'cogs.admin.birthday',
     'cogs.admin.report',
     'cogs.admin.event_policy',
-    
-    # Utils Cogs
-    'cogs.utils.support',
-    'cogs.utils.help',
-    'cogs.utils.channel',
 ]
 # Cog-уудыг зөв дарааллаар ачаалах
 async def load_cogs_and_sync():
