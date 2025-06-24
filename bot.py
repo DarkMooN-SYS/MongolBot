@@ -52,10 +52,10 @@ bot.owner_id = 751055793893146624  # Change this to your Discord ID
 # Extensions list шинэчлэх 
 extensions = [
 
-    # Utils Cogs
+    # Utils Cogs - Channel must be loaded first
+    'cogs.utils.channel',
     'cogs.utils.support',
     'cogs.utils.help',
-    'cogs.utils.channel',
 
     # Music Cogs
     'cogs.music.music',
