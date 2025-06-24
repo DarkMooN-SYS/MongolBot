@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
+from cogs.utils.channel import is_channel_enabled
 
 class PollView(discord.ui.View):
     def __init__(self, question: str, options: list[str], allow_new_options: bool, max_new_options: int, admin_id: int):
@@ -108,10 +109,43 @@ class fun(commands.Cog):
 
         admin_id = interaction.user.id
         view = PollView(question, options, allow_new_options, max_new_options, admin_id)
+        self.poll_view = view  # Store the PollView instance for later access
 
         embed = view.get_embed()
 
         await interaction.response.send_message(embed=embed, view=view)
+
+    @commands.command(name="end", help="Санал асуулгыг дуусгаж, эцсийн үр дүнг харуулна.")
+    async def end(self, ctx: commands.Context):
+        # Only allow poll creator (admin) or users with manage_guild permission to end
+        if not hasattr(self, 'poll_view') or self.poll_view is None:
+            await ctx.send("❌ Одоогоор идэвхтэй санал асуулга байхгүй байна!")
+            return
+        poll_view = self.poll_view
+        # Check if the user is the poll creator or has manage_guild
+        if ctx.author.id != poll_view.admin_id and (not isinstance(ctx.author, discord.Member) or not ctx.author.guild_permissions.manage_guild):
+            await ctx.send("❌ Та санал асуулгыг дуусгах эрхгүй!")
+            return
+        # Disable all buttons
+        for item in poll_view.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
+        embed = poll_view.get_embed()
+        embed.title = "📊 Санал асуулга дууслаа!"
+        await ctx.send(embed=embed)
+        self.poll_view = None
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
 # To add the cog to your bot
 async def setup(bot: commands.Bot):

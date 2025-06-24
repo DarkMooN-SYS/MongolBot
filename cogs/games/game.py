@@ -7,6 +7,7 @@ from discord.ext.commands import CooldownMapping, Cooldown, BucketType
 from collections import defaultdict
 from typing import Optional, Any
 from discord.abc import Messageable
+from cogs.utils.channel import is_channel_enabled
 
 class MinefieldView(discord.ui.View):
     def __init__(self, interaction: discord.Interaction, cog: Any, bet: float, dimension: int, bombs: int):
@@ -423,6 +424,18 @@ class Game(commands.Cog):
             color=discord.Color.blurple()
         )
         await ctx.send(embed=embed, view=view)
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
 async def setup(bot: commands.Bot) -> None:
     bank_cog = bot.get_cog("Bank")

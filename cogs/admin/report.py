@@ -273,6 +273,12 @@ class Report(commands.Cog):
         view.add_item(ApplicationButton(staff_channel_id))
         await ctx.send(embed=embed, view=view)
 
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
     async def cog_unload(self) -> None:
         """Clean up on cog unload"""
         pass

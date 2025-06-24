@@ -10,6 +10,7 @@ import re
 import os
 from ..utils.database import get_async_connection
 import aiosqlite
+from cogs.utils.channel import is_channel_enabled
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -363,6 +364,18 @@ class Economy(commands.Cog):
         except Exception as e:
             logging.error(f"SQLite Error in get_balance: {e}")
             return 5000
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
 def setup(bot: commands.Bot):
     return bot.loop.create_task(bot.add_cog(Economy(bot)))

@@ -9,6 +9,7 @@ from typing import Optional, Union, Any, List, Tuple, NoReturn
 from ..utils.database import get_async_connection
 import aiosqlite
 import os
+from cogs.utils.channel import is_channel_enabled
 
 # Set up logging
 logging.basicConfig(
@@ -182,6 +183,18 @@ class Bank(commands.Cog):
                 await ctx.send("⚠️ Таны данс байхгүй байна. mbank командаар үүсгэнэ үү!")
                 return False
         return True
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Synchronous check: only check if in a guild, async checks must be done in before_invoke
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check and message sending
+        if not ctx.guild or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
     # Bank Commands
     @commands.command(name="bank")

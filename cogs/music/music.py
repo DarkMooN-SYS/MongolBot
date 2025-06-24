@@ -3,6 +3,7 @@ from discord.ext import commands
 import wavelink
 from typing import TYPE_CHECKING, List
 from datetime import timedelta
+from cogs.utils.channel import is_channel_enabled
 
 if TYPE_CHECKING:
     from discord.ext.commands import Bot, Context
@@ -17,6 +18,18 @@ class Music(commands.Cog):
         await self.bot.wait_until_ready()
         node = wavelink.Node(uri='http://67.220.85.182:6576', password='Dragon95279853')
         await wavelink.Pool.connect(client=self.bot, nodes=[node])
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
     @commands.command(name='play')
     async def play(self, ctx: commands.Context, *, search: str):

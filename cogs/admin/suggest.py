@@ -4,6 +4,7 @@ import sqlite3
 from discord.ext import commands
 import asyncio
 from ..utils.db_helper import get_suggestions_db
+from cogs.utils.channel import is_channel_enabled
 
 class Suggest(commands.Cog):
     def __init__(self, bot):
@@ -63,6 +64,10 @@ class Suggest(commands.Cog):
         if ctx.channel.id != self.SUGGESTION_CHANNEL_ID:
             return
         
+        if not ctx.guild or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            return
+
         if "|" not in message:
             warning_message = await ctx.send("⚠️ **Та тайлбар бичээгүй байна!**\n📌 Зөв форматаар бичнэ үү: `msuggest <санал> | <тайлбар>`")
             try:
@@ -164,5 +169,17 @@ class Suggest(commands.Cog):
         except discord.NotFound:
             pass
 
-async def setup(bot):
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
+
+async def setup(bot: commands.Bot):
     await bot.add_cog(Suggest(bot))
