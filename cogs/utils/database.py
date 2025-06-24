@@ -21,13 +21,14 @@ class DatabaseManager:
         self.databases = {
             'bot_config': self.base_path / "bot.db",  # Bot configuration, prefixes, guilds
             'economy': self.base_path / "economy.db", 
-            'birthdays': self.base_path / "birthdays.db",            
+            'birthdays': self.base_path / "birthdays.db",              
             'giveaways': self.base_path / "giveaways.db",
             'counting': self.base_path / "counting.db",
             'suggestions': self.base_path / "suggestions.db",
             'serverbank': self.base_path / "serverbank.db",
             'disabled_channels': self.base_path / "disabled_channels.db",
-            'staff_channels': self.base_path / "staff_channels.db"
+            'staff_channels': self.base_path / "staff_channels.db",
+            'channel_permissions': self.base_path / "channel_permissions.db"
         }
     
     def get_db_path(self, db_name: str) -> str:

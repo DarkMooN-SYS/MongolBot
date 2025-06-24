@@ -1,13 +1,11 @@
-import aiosqlite
 from discord.ext import commands
 import discord
 import os
 from typing import Optional
-
-CHANNEL_DB = os.path.join(os.path.dirname(__file__), '../data/channel_permissions.db')
+from .database import get_async_db_context
 
 async def ensure_table():
-    async with aiosqlite.connect(CHANNEL_DB) as db:
+    async with get_async_db_context('channel_permissions') as db:
         await db.execute("""
             CREATE TABLE IF NOT EXISTS channel_permissions (
                 guild_id TEXT,
@@ -19,7 +17,7 @@ async def ensure_table():
 
 async def is_channel_enabled(guild_id: int, channel_id: int) -> bool:
     await ensure_table()
-    async with aiosqlite.connect(CHANNEL_DB) as db:
+    async with get_async_db_context('channel_permissions') as db:
         async with db.execute("SELECT 1 FROM channel_permissions WHERE guild_id = ? AND channel_id = ?", (str(guild_id), str(channel_id))) as cursor:
             return await cursor.fetchone() is not None
 
@@ -36,10 +34,9 @@ class ChannelPermission(commands.Cog):
         action = action.lower()
         if action not in ("enable", "disable"):
             await ctx.send("Зөвхөн 'enable' эсвэл 'disable' гэж бичнэ үү.")
-            return
-        # all эсвэл channel
+            return        # all эсвэл channel
         if target == "all":
-            async with aiosqlite.connect(CHANNEL_DB) as db:
+            async with get_async_db_context('channel_permissions') as db:
                 if action == "enable":
                     # Бүх channel-уудыг идэвхжүүлэх
                     for channel in ctx.guild.text_channels:
@@ -58,7 +55,7 @@ class ChannelPermission(commands.Cog):
             if not channel:
                 await ctx.send("Channel олдсонгүй!")
                 return
-            async with aiosqlite.connect(CHANNEL_DB) as db:
+            async with get_async_db_context('channel_permissions') as db:
                 if action == "enable":
                     await db.execute("INSERT OR IGNORE INTO channel_permissions (guild_id, channel_id) VALUES (?, ?)", (str(ctx.guild.id), str(channel.id)))
                     await db.commit()
