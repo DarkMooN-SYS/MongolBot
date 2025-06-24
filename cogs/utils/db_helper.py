@@ -16,7 +16,8 @@ DATA_DIR.mkdir(exist_ok=True)
 # Database файлуудын жагсаалт
 DATABASES = {
     'bot_config': 'bot.db',  # Bot configuration, prefixes, guilds
-    'economy': 'economy.db',    'birthdays': 'birthdays.db',
+    'economy': 'economy.db',    
+    'birthdays': 'birthdays.db',
     'giveaways': 'giveaways.db',
     'counting': 'counting.db',
     'suggestions': 'suggestions.db',
@@ -102,7 +103,12 @@ class DatabaseConnection:
         self.conn = get_sync_connection(self.db_name)
         return self.conn
     
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any]
+    ):
         if self.conn:
             self.conn.close()
 
@@ -118,7 +124,12 @@ class AsyncDatabaseConnection:
         self.conn = await get_async_connection(self.db_name)
         return self.conn
     
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[Any]
+    ):
         if self.conn:
             await self.conn.close()
 

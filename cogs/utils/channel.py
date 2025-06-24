@@ -4,7 +4,7 @@ import discord
 import os
 from typing import Optional
 
-CHANNEL_DB = os.path.join(os.path.dirname(__file__), '../../data/channel_permissions.db')
+CHANNEL_DB = os.path.join(os.path.dirname(__file__), '../data/channel_permissions.db')
 
 async def ensure_table():
     async with aiosqlite.connect(CHANNEL_DB) as db:
