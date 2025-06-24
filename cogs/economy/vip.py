@@ -8,6 +8,7 @@ import asyncio
 import aiosqlite
 from typing import Optional, Dict, Any, Tuple, Union
 from ..utils.database import get_async_db_context
+from cogs.utils.channel import is_channel_enabled
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -283,6 +284,7 @@ class VIP(commands.Cog):
     @commands.command(name="vip")
     async def vip(self, ctx: commands.Context) -> Optional[discord.Message]:
         """VIP эрхийн мэдээлэл харуулах"""
+        
         data = await self.get_user_data(ctx.author.id)
         if not data:
             return await ctx.send("⚠️ Та VIP эрхгүй байна. `mbuyvip` командаар VIP худалдан аваарай!")
@@ -654,6 +656,18 @@ class VIP(commands.Cog):
         """When cog is unloaded, cancel the task"""
         if hasattr(self, 'remove_expired_vip'):
             self.remove_expired_vip.cancel()
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
 async def setup(bot: commands.Bot) -> None:
     """🛠 Ботод VIP когийг нэмэх"""

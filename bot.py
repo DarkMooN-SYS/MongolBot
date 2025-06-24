@@ -61,10 +61,13 @@ extensions = [
     'cogs.economy.vip',
 
     # Games Cogs
-    'cogs.games.buh',
-    'cogs.games.horseracing',
     'cogs.games.game',
     'cogs.games.lottery',
+
+    # Server Cogs
+    'cogs.server.anime',
+    'cogs.server.buh',
+    'cogs.server.horseracing',
 
     # Admin Cogs
     'cogs.admin.admin',
@@ -72,14 +75,14 @@ extensions = [
     'cogs.admin.suggest',
     'cogs.admin.giveaway',
     'cogs.admin.fun',
-    'cogs.admin.blacklist',
     'cogs.admin.birthday',
     'cogs.admin.report',
     'cogs.admin.event_policy',
     
     # Utils Cogs
     'cogs.utils.support',
-    'cogs.utils.help'
+    'cogs.utils.help',
+    'cogs.utils.channel',
 ]
 # Cog-уудыг зөв дарааллаар ачаалах
 async def load_cogs_and_sync():
@@ -174,49 +177,7 @@ async def on_command_error(ctx: commands.Context, error: Exception):
         error_embed.description = f"❌ **{command_name}** командад хоосон утга оруулсан байна.\n💡 Та утга оруулсан эсэхээ шалгаад дахин оролдоно уу"
         
     elif isinstance(error, commands.CommandOnCooldown):
-        cooldown_time = int(error.retry_after)
-        minutes = cooldown_time // 60
-        seconds = cooldown_time % 60
-        
-        if minutes > 0:
-            time_text = f"{minutes} минут {seconds} секунд"
-        else:
-            time_text = f"{seconds} секунд"
-            
-        error_embed.set_author(name="⏳ Түр хүлээнэ үү")
-        error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
-        
-        try:
-            message = await ctx.send(embed=error_embed)
-            
-            # Cooldown хугацааг хүлээх
-            while cooldown_time > 0:
-                await asyncio.sleep(1)
-                cooldown_time -= 1
-                
-                if cooldown_time > 60:
-                    time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
-                else:
-                    time_text = f"{cooldown_time} секунд"
-                    
-                error_embed.description = f"Энэ командыг дахин ашиглахын тулд `{time_text}` хүлээх хэрэгтэй"
-                try:
-                    await message.edit(embed=error_embed)
-                except (discord.NotFound, discord.HTTPException, RuntimeError):
-                    # Мессеж устсан эсвэл session хаагдсан бол loop-ээс гарах
-                    break
-                    
-            try:
-                error_embed.color = discord.Color.green()
-                error_embed.set_author(name="✅ Команд бэлэн боллоо")
-                error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
-                await message.edit(embed=error_embed)
-            except (discord.NotFound, discord.HTTPException, RuntimeError):
-                # Мессеж устсан эсвэл session хаагдсан бол алгасах
-                pass
-        except (discord.Forbidden, RuntimeError, discord.ConnectionClosed, discord.HTTPException):
-            # Мессеж илгээх эрхгүй эсвэл session хаагдсан бол алгасах
-            pass
+        await send_cooldown_error(ctx, error)
         return
         
     elif isinstance(error, commands.MissingPermissions):
@@ -270,6 +231,10 @@ async def on_command_error(ctx: commands.Context, error: Exception):
     elif isinstance(error, commands.RoleNotFound):
         error_embed.description = "❌ Таны заасан роль олдсонгүй.\n💡 Та ролийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
         
+    elif str(error) == "Channel not enabled for commands.":
+        await send_channel_permission_error(ctx)
+        return
+    
     else:
         # Алдааны мэдээллийг логдох
         error_embed.description = "⚠️ Уучлаарай, алдаа гарлаа. Админтай холбогдоно уу."
@@ -440,6 +405,59 @@ async def list_all_commands(ctx: commands.Context):
                 inline=False
             )
         await ctx.send(embed=embed)
+
+# --- Custom error handlers ---
+async def send_cooldown_error(ctx: commands.Context, error: commands.CommandOnCooldown):
+    cooldown_time = int(error.retry_after)
+    minutes = cooldown_time // 60
+    seconds = cooldown_time % 60
+    if minutes > 0:
+        time_text = f"{minutes} минут {seconds} секунд"
+    else:
+        time_text = f"{seconds} секунд"
+    error_embed = discord.Embed(color=discord.Color.red())
+    error_embed.set_author(name="⏳ Түр хүлээнэ үү")
+    error_embed.description = f"⏳ Та {error.cooldown.per:.1f} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\nДахин ашиглахын тулд `{time_text}` хүлээнэ үү!"
+    try:
+        message = await ctx.send(embed=error_embed)
+        while cooldown_time > 0:
+            await asyncio.sleep(1)
+            cooldown_time -= 1
+            if cooldown_time > 60:
+                time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
+            else:
+                time_text = f"{cooldown_time} секунд"
+            error_embed.description = f"⏳ Та {error.cooldown.per:.1f} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\nДахин ашиглахын тулд `{time_text}` хүлээнэ үү!"
+            try:
+                await message.edit(embed=error_embed)
+            except (discord.NotFound, discord.HTTPException, RuntimeError):
+                break
+        try:
+            error_embed.color = discord.Color.green()
+            error_embed.set_author(name="✅ Команд бэлэн боллоо")
+            error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
+            await message.edit(embed=error_embed)
+        except (discord.NotFound, discord.HTTPException, RuntimeError):
+            pass
+    except (discord.Forbidden, RuntimeError, discord.ConnectionClosed, discord.HTTPException):
+        pass
+
+async def send_channel_permission_error(ctx: commands.Context):
+    error_embed = discord.Embed(color=discord.Color.red())
+    error_embed.set_author(name="❌ Алдаа")
+    error_embed.description = "❌ Энэ сувгаар командыг ашиглах боломжгүй! Админ зөвшөөрсөн сувгаар ашиглана уу."
+    try:
+        message = await ctx.send(embed=error_embed)
+        await asyncio.sleep(10)
+        await message.delete()
+    except discord.Forbidden:
+        pass
+    except (RuntimeError, discord.ConnectionClosed, discord.HTTPException):
+        logger.warning("Discord session хаагдсан эсвэл холболт тасарсан тул алдааны мессеж илгээж чадсангүй")
+        pass
+    except Exception as send_error:
+        logger.error(f"Алдааны мессеж илгээхэд алдаа гарлаа: {send_error}")
+        pass
 
 # Run the bot
 if TOKEN is None:
