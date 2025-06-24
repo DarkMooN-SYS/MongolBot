@@ -16,13 +16,11 @@ DATA_DIR.mkdir(exist_ok=True)
 # Database файлуудын жагсаалт
 DATABASES = {
     'bot_config': 'bot.db',  # Bot configuration, prefixes, guilds
-    'economy': 'economy.db',
-    'birthdays': 'birthdays.db',
+    'economy': 'economy.db',    'birthdays': 'birthdays.db',
     'giveaways': 'giveaways.db',
     'counting': 'counting.db',
     'suggestions': 'suggestions.db',
     'serverbank': 'serverbank.db',
-    'buh': 'buh.db',
     'disabled_channels': 'disabled_channels.db',
     'blacklist': 'blacklist.db',
     'prefixes': 'prefixes.db',
@@ -63,10 +61,6 @@ def get_economy_db() -> sqlite3.Connection:
 def get_main_db() -> sqlite3.Connection:
     """Main bot database холболт"""
     return get_sync_connection('bot_config')
-
-def get_buh_db() -> sqlite3.Connection:
-    """Buh game database холболт"""
-    return get_sync_connection('buh')
 
 def get_suggestions_db() -> sqlite3.Connection:
     """Suggestions database холболт"""
@@ -127,11 +121,6 @@ class AsyncDatabaseConnection:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.conn:
             await self.conn.close()
-
-# Шинэ alias-ууд нэмэх
-def get_db_connection_old():
-    """Хуучин get_db_connection функцыг дэмжих"""
-    return get_sync_connection('buh')
 
 # Log мэдээлэл
 logger.info(f"📁 Database файлууд: {DATA_DIR}")
