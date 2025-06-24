@@ -7,7 +7,7 @@ from discord.ext.commands import CooldownMapping, Cooldown, BucketType
 from collections import defaultdict
 from typing import Optional, Any
 from discord.abc import Messageable
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 class MinefieldView(discord.ui.View):
     def __init__(self, interaction: discord.Interaction, cog: Any, bet: float, dimension: int, bombs: int):

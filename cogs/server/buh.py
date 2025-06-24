@@ -3,7 +3,7 @@ from discord.ext import commands
 import random
 import asyncio
 from typing import Optional
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 class Buh(commands.Cog):
     def __init__(self, bot):

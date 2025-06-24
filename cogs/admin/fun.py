@@ -2,7 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 import random
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 class PollView(discord.ui.View):
     def __init__(self, question: str, options: list[str], allow_new_options: bool, max_new_options: int, admin_id: int):

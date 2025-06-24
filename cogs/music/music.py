@@ -3,7 +3,7 @@ from discord.ext import commands
 import wavelink
 from typing import TYPE_CHECKING, List
 from datetime import timedelta
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 if TYPE_CHECKING:
     from discord.ext.commands import Bot, Context

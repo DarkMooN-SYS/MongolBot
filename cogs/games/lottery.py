@@ -9,7 +9,7 @@ from typing import Any
 import aiosqlite
 import os
 from pathlib import Path
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 TICKET_PRICE = 300_000
 MAX_TICKETS_PER_USER = 2 # Суурь тасалбарын тоо

@@ -6,7 +6,7 @@ import logging
 import re
 from typing import Dict, Any, Optional
 from ..utils.database import get_async_db_context
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 # Лог үүсгэх
 logger = logging.getLogger(__name__)

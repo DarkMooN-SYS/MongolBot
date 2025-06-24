@@ -8,7 +8,7 @@ import pytz
 from typing import Optional, Set, List, Union
 from ..utils.db_helper import get_db_path
 from ..utils.database import get_async_connection
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 # Channel шалгах функц
 def is_valid_giveaway_channel(channel) -> bool:  # type: ignore

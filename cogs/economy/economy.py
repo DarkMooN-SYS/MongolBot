@@ -10,7 +10,7 @@ import re
 import os
 from ..utils.database import get_async_connection
 import aiosqlite
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

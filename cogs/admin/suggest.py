@@ -4,7 +4,7 @@ import sqlite3
 from discord.ext import commands
 import asyncio
 from ..utils.db_helper import get_suggestions_db
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 class Suggest(commands.Cog):
     def __init__(self, bot):

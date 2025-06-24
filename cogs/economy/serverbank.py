@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from typing import Optional, List, Tuple, Union
 from ..utils.database import get_async_db_context
-from cogs.utils.channel import is_channel_enabled
+from ..utils.channel import is_channel_enabled
 
 class ServerBank(commands.Cog):
     def __init__(self, bot: commands.Bot):
