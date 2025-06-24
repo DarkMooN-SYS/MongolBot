@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 import os
 from pathlib import Path
+from cogs.utils.channel import is_channel_enabled
 
 TICKET_PRICE = 300_000
 MAX_TICKETS_PER_USER = 2 # Суурь тасалбарын тоо
@@ -175,6 +176,18 @@ class Lottery(commands.Cog):
         if bank_cog and hasattr(bank_cog, "get_balance") and hasattr(bank_cog, "update_balance"):
             return bank_cog
         return None
+
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
 
     @commands.command(name='buylottery')
     async def lottery_buy(self, ctx: commands.Context, count: int = 1):
