@@ -53,7 +53,7 @@ class ServerBank(commands.Cog):
                 return result[0] if result and result[0] is not None else 0
 
     @commands.command(name='addserver')
-    async def addserver(self, ctx):
+    async def addserver(self, ctx: commands.Context):
         if not ctx.guild or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
             await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
             return
