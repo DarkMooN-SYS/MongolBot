@@ -13,7 +13,7 @@ class HelpSelect(discord.ui.Select):
             max_values=1
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         category = self.values[0]
         
         # Өнгөний кодууд
