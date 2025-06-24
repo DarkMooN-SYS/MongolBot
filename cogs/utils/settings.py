@@ -7,7 +7,7 @@ from .database import get_db_path
 
 logger = logging.getLogger(__name__)
 # Default prefix-г array биш string болгох
-default_prefix = ">"
+default_prefix = "M"
 prefixes = {}
 
 async def init_db():
@@ -24,7 +24,7 @@ async def init_db():
         await db.execute("""
             CREATE TABLE IF NOT EXISTS guilds (
                 guild_id TEXT PRIMARY KEY,
-                prefix TEXT DEFAULT '>'
+                prefix TEXT DEFAULT 'M'
             )
         """)
         await db.commit()
