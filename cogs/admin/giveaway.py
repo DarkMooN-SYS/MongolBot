@@ -8,6 +8,7 @@ import pytz
 from typing import Optional, Set, List, Union
 from ..utils.db_helper import get_db_path
 from ..utils.database import get_async_connection
+from cogs.utils.channel import is_channel_enabled
 
 # Channel шалгах функц
 def is_valid_giveaway_channel(channel) -> bool:  # type: ignore
@@ -520,9 +521,20 @@ class Giveaway(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    def cog_check(self, ctx: commands.Context) -> bool:
+        # Only allow commands in guilds; channel enable check must be async elsewhere
+        if not ctx.guild:
+            return False
+        return True
+
+    async def cog_before_invoke(self, ctx: commands.Context):
+        # Async channel check here
+        if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
+            await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
+            raise commands.CheckFailure("Channel not enabled for commands.")
+
     @commands.command(name='giveaway', aliases=['gw'], help='Starts a giveaway. Admins only.')
-    @commands.has_permissions(administrator=True)
-    async def giveaway(self, ctx: commands.Context) -> None:
+    async def giveaway(self, ctx: commands.Context):
         # Persistent Select Menu View үүсгэх
         view = GiveawaySelectView(is_owner=False)
         
