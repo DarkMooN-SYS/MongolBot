@@ -9,6 +9,7 @@ from typing import Optional, Union, Any, List, Tuple, NoReturn
 from ..utils.database import get_async_connection
 import aiosqlite
 import os
+import asyncio
 from ..utils.channel import is_channel_enabled
 
 # Set up logging
@@ -155,7 +156,50 @@ class Bank(commands.Cog):
         retry_after = bucket.update_rate_limit()
 
         if retry_after:
-            await ctx.send(f"⏳ Та **{retry_after:.1f}** секунд хүлээнэ үү!")
+            cooldown_time = int(retry_after)
+            total_time = cooldown_time
+            # If cooldown is 1 second or less, just show a simple message and return
+            if cooldown_time <= 1:
+                await ctx.send("⏳ Та 1 секунд хүлээнэ үү!")
+                return False
+            error_embed = discord.Embed(color=discord.Color.red())
+            error_embed.set_author(name="⏳ Түр хүлээнэ үү")
+            if cooldown_time > 60:
+                time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
+            else:
+                time_text = f"{cooldown_time} секунд"
+            error_embed.description = f"⏳ Та {int(retry_after)} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\nДахин ашиглахын тулд `{time_text}` хүлээнэ үү!"
+            try:
+                message = await ctx.send(embed=error_embed)
+                while cooldown_time > 0:
+                    await asyncio.sleep(1)
+                    cooldown_time -= 1
+                    progress_blocks = 10
+                    percent = (total_time - cooldown_time) / total_time if total_time > 0 else 1
+                    filled_blocks = int(progress_blocks * percent)
+                    bar = "🟩" * filled_blocks + "⬜" * (progress_blocks - filled_blocks)
+                    if cooldown_time > 60:
+                        time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
+                    else:
+                        time_text = f"{cooldown_time} секунд"
+                    error_embed.description = (
+                        f"⏳ Та {int(retry_after)} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\n"
+                        f"Дахин ашиглахын тулд `{time_text}` хүлээнэ үү!\n"
+                        f"{bar}"
+                    )
+                    try:
+                        await message.edit(embed=error_embed)
+                    except (discord.NotFound, discord.HTTPException, RuntimeError):
+                        break
+                try:
+                    error_embed.color = discord.Color.green()
+                    error_embed.set_author(name="✅ Команд бэлэн боллоо")
+                    error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
+                    await message.edit(embed=error_embed)
+                except (discord.NotFound, discord.HTTPException, RuntimeError):
+                    pass
+            except (discord.Forbidden, RuntimeError, discord.ConnectionClosed, discord.HTTPException):
+                pass
             return False
         return True
 
