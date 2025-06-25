@@ -121,35 +121,67 @@ class ServerBank(commands.Cog):
         if not await self.is_owner(ctx):
             return await ctx.send("⚠️ Зөвхөн серверийн эзэн ашиглах боломжтой!")
         balance = await self.get_balance(ctx.guild.id)
-        await ctx.send(f"💰 Серверийн банкны үлдэгдэл: **{balance:,}₮**")
-
+        await ctx.send(f"💰 Серверийн банкны үлдэгдэл: **{balance:,}₮**")    
+        
     @commands.command(name='serverdep')
-    async def deposit_command(self, ctx: commands.Context, amount: int):
+    async def deposit_command(self, ctx: commands.Context, amount: Optional[int] = None):
         if ctx.guild is None:
             return await ctx.send("❌ Энэ команд зөвхөн сервер дээр ажиллана.")
         if not await self.is_owner(ctx):
             return await ctx.send("⚠️ Зөвхөн серверийн эзэн ашиглах боломжтой!")
+        
+        if amount is None:
+            return await ctx.send("⚠️ Мөнгөний хэмжээг заана уу! Жишээ: `!serverdep 1000`")
+        
+        if amount <= 0:
+            return await ctx.send("⚠️ Тоо хэмжээ 0-ээс их байх ёстой!")
+            
         await self.update_balance(ctx.guild.id, amount)
         await ctx.send(f"➕ {amount:,}₮ серверийн банканд нэмэгдлээ!")
-
+    
     @commands.command(name='serverwith')
-    async def withdraw_command(self, ctx: commands.Context, amount: int):
+    async def withdraw_command(self, ctx: commands.Context, amount: Optional[int] = None):
         if ctx.guild is None:
             return await ctx.send("❌ Энэ команд зөвхөн сервер дээр ажиллана.")
         if not await self.is_owner(ctx):
             return await ctx.send("⚠️ Зөвхөн серверийн эзэн ашиглах боломжтой!")
+        
+        if amount is None:
+            return await ctx.send("⚠️ Мөнгөний хэмжээг заана уу! Жишээ: `!serverwith 1000`")
+        
+        if amount <= 0:
+            return await ctx.send("⚠️ Тоо хэмжээ 0-ээс их байх ёстой!")
+            
         balance = await self.get_balance(ctx.guild.id)
         if balance < amount:
             return await ctx.send("⚠️ Серверийн банкны үлдэгдэл хүрэлцэхгүй байна.")
+          # Remove money from server bank
         await self.update_balance(ctx.guild.id, -amount)
-        await ctx.send(f"➖ {amount:,}₮ серверийн банкнаас хасагдлаа!")
+          # Add money to user's personal balance
+        try:
+            # Get the economy cog to add money to user's account
+            economy_cog = self.bot.get_cog('Economy')
+            if economy_cog and hasattr(economy_cog, 'update_balance'):
+                # Type ignore for dynamic cog access
+                await economy_cog.update_balance('economy', ctx.author.id, amount)  # type: ignore
+                await ctx.send(f"✅ {amount:,}₮ серверийн банкнаас хасагдаж, таны хувийн дансанд нэмэгдлээ!")
+            else:
+                # If economy cog not found, still remove from server bank but notify user
+                await ctx.send(f"⚠️ {amount:,}₮ серверийн банкнаас хасагдлаа! (Economy систем олдсонгүй)")
+        except Exception as e:
+            # If adding to personal balance fails, add money back to server bank
+            await self.update_balance(ctx.guild.id, amount)
+            await ctx.send(f"❌ Таны хувийн дансанд мөнгө нэмэхэд алдаа гарлаа: {e}")
+            return
 
-    @check_balance_command.error
-    @deposit_command.error
-    @withdraw_command.error
-    async def command_error_handler(self, ctx: commands.Context, error: Exception):
+    async def cog_command_error(self, ctx: commands.Context, error: Exception):
+        """Handle errors for all commands in this cog"""
         if isinstance(error, commands.CheckFailure):
             await ctx.send("⚠️ Зөвхөн **серверийн эзэд** ашиглах боломжтой.")
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("⚠️ Мөнгөний хэмжээг заана уу! Жишээ: `!serverwith 1000`")
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send("⚠️ Зөв тоо оруулна уу!")
         else:
             await ctx.send(f"❌ Алдаа гарлаа: `{error}`")
 
