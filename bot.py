@@ -56,6 +56,7 @@ extensions = [
     'cogs.utils.channel',
     'cogs.utils.support',
     'cogs.utils.help',
+    'cogs.utils.tutorial',
 
     # Music Cogs
     'cogs.music.music',
