@@ -10,16 +10,24 @@ async def ensure_table():
             CREATE TABLE IF NOT EXISTS channel_permissions (
                 guild_id TEXT,
                 channel_id TEXT,
+                disabled INTEGER DEFAULT 0,
                 PRIMARY KEY (guild_id, channel_id)
             )
         """)
         await db.commit()
 
 async def is_channel_enabled(guild_id: int, channel_id: int) -> bool:
+    """
+    Channels are enabled by default. Only return False if explicitly disabled.
+    """
     await ensure_table()
     async with get_async_db_context('channel_permissions') as db:
-        async with db.execute("SELECT 1 FROM channel_permissions WHERE guild_id = ? AND channel_id = ?", (str(guild_id), str(channel_id))) as cursor:
-            return await cursor.fetchone() is not None
+        async with db.execute("SELECT disabled FROM channel_permissions WHERE guild_id = ? AND channel_id = ?", (str(guild_id), str(channel_id))) as cursor:
+            result = await cursor.fetchone()
+            # If no record exists, channel is enabled by default
+            # If record exists but disabled=0, channel is enabled
+            # If record exists and disabled=1, channel is disabled
+            return result is None or result[0] == 0
 
 class ChannelPermission(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -39,14 +47,13 @@ class ChannelPermission(commands.Cog):
         if target == "all":
             async with get_async_db_context('channel_permissions') as db:
                 if action == "enable":
-                    # Бүх channel-уудыг идэвхжүүлэх
-                    for channel in ctx.guild.text_channels:
-                        await db.execute("INSERT OR IGNORE INTO channel_permissions (guild_id, channel_id) VALUES (?, ?)", (str(ctx.guild.id), str(channel.id)))
-                    await db.commit()
-                    await ctx.send("Бүх channel дээр командууд идэвхжлээ!")
-                else:
-                    # Бүх channel-уудыг идэвхгүй болгох
+                    # Бүх channel-уудыг идэвхжүүлэх (disabled records устгах)
                     await db.execute("DELETE FROM channel_permissions WHERE guild_id = ?", (str(ctx.guild.id),))
+                    await db.commit()
+                    await ctx.send("Бүх channel дээр командууд идэвхжлээ! (default)")
+                else:                    # Бүх channel-уудыг идэвхгүй болгох
+                    for channel in ctx.guild.text_channels:
+                        await db.execute("INSERT OR REPLACE INTO channel_permissions (guild_id, channel_id, disabled) VALUES (?, ?, 1)", (str(ctx.guild.id), str(channel.id)))
                     await db.commit()
                     await ctx.send("Бүх channel дээр командууд идэвхгүй боллоо!")
         elif target and target.startswith("<#") and target.endswith(">"):
@@ -58,11 +65,13 @@ class ChannelPermission(commands.Cog):
                 return
             async with get_async_db_context('channel_permissions') as db:
                 if action == "enable":
-                    await db.execute("INSERT OR IGNORE INTO channel_permissions (guild_id, channel_id) VALUES (?, ?)", (str(ctx.guild.id), str(channel.id)))
-                    await db.commit()
-                    await ctx.send(f"{channel.mention} дээр командууд идэвхжлээ!")
-                else:
+                    # Enable channel (remove disabled record or set disabled=0)
                     await db.execute("DELETE FROM channel_permissions WHERE guild_id = ? AND channel_id = ?", (str(ctx.guild.id), str(channel.id)))
+                    await db.commit()
+                    await ctx.send(f"{channel.mention} дээр командууд идэвхжлээ! (default)")
+                else:
+                    # Disable channel (set disabled=1)
+                    await db.execute("INSERT OR REPLACE INTO channel_permissions (guild_id, channel_id, disabled) VALUES (?, ?, 1)", (str(ctx.guild.id), str(channel.id)))
                     await db.commit()
                     await ctx.send(f"{channel.mention} дээр командууд идэвхгүй боллоо!")
         else:
