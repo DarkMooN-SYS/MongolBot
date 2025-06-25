@@ -38,6 +38,7 @@ class HelpSelect(discord.ui.Select):
             )
             commands_list = [
                 ("📚 `help`", "Тусламжийн цэс харах"),
+                ("📚 `tutorial`", "MongolBot-ийн бүрэн заавар"),
                 ("🆘 `support`", "Асуудал/санал хүсэлт илгээх")
             ]
             
