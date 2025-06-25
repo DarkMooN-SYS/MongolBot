@@ -269,9 +269,19 @@ class TranslateButtonView(discord.ui.View):
         if not embed:
             await interaction.response.send_message("\u274C Орчуулах embed олдсонгүй!", ephemeral=True)
             return
+        
         if not self.translated:
             try:
-                self.text_mn = self.translator.translate(self.text_en, src='en', dest='mn').text
+                # Simple translation without async complications
+                import asyncio
+                def sync_translate():
+                    return self.translator.translate(self.text_en, src='en', dest='mn')
+                
+                # Run translation in thread to avoid blocking
+                loop = asyncio.get_event_loop()
+                translation_result = await loop.run_in_executor(None, sync_translate)
+                
+                self.text_mn = translation_result.text
                 embed.description = self.text_mn
                 button.label = "Англи руу буцаах"
                 await interaction.response.edit_message(embed=embed, view=self)
