@@ -93,9 +93,13 @@ class Lottery(commands.Cog):
                 async with db.execute('SELECT jackpot, last_draw FROM lottery_info WHERE id = 1') as cursor:
                     row = await cursor.fetchone()
                     if row:
-                        self.jackpot = row[0]
+                        self.jackpot = row[0] if row[0] is not None else 0
                         if row[1]:
                             self.last_draw = datetime.fromisoformat(row[1])
+                    else:
+                        # Анхны мэдээлэл үүсгэх
+                        self.jackpot = 0
+                        self.last_draw = None
                 
                 # Ялагчдын түүх ачаалах
                 async with db.execute('SELECT user_id, amount, date FROM winners ORDER BY id DESC LIMIT 10') as cursor:
@@ -132,7 +136,7 @@ class Lottery(commands.Cog):
                     ''', (self.jackpot, last_draw_str))
                     
                     await db.execute('COMMIT')
-                    print(f"✅ Lottery data амжилттай хадгалагдлаа")
+                    print(f"✅ Lottery data амжилттай хадгалагдлаа - Jackpot: {self.jackpot:,}₮, Tickets: {len(self.tickets)}")
                     
                 except Exception as e:
                     await db.execute('ROLLBACK')
@@ -226,7 +230,9 @@ class Lottery(commands.Cog):
             return
         await update_balance('bank', user_id, -total_price)  # type: ignore
         self.tickets[user_id] = prev + count
-        self.jackpot += total_price        # Database-д хадгалах
+        self.jackpot += total_price
+        
+        # Database-д хадгалах
         await self.save_lottery_data()
         
         embed = discord.Embed(
@@ -477,6 +483,30 @@ class Lottery(commands.Cog):
             embed.add_field(name="📅 Сүүлийн сугалаа", value=self.last_draw.strftime('%Y-%m-%d %H:%M'), inline=True)
         else:
             embed.add_field(name="📅 Сүүлийн сугалаа", value="Байхгүй", inline=True)
+        
+        await ctx.send(embed=embed)
+
+    @commands.command(name='lotteryreload', hidden=True)
+    @commands.has_permissions(administrator=True)
+    async def lottery_reload(self, ctx: commands.Context):
+        """Database-ээс lottery өгөгдлийг дахин ачаалах"""
+        old_jackpot = self.jackpot
+        old_tickets = len(self.tickets)
+        
+        # Өгөгдлийг дахин ачаалах
+        self.tickets = {}
+        self.jackpot = 0
+        self.last_draw = None
+        self.winners = []
+        
+        await self.load_lottery_data()
+        
+        embed = discord.Embed(
+            title="🔄 Lottery өгөгдөл дахин ачаалагдлаа",
+            color=discord.Color.blue()
+        )
+        embed.add_field(name="💰 Jackpot", value=f"Өмнө: {old_jackpot:,}₮\nОдоо: {self.jackpot:,}₮", inline=True)
+        embed.add_field(name="🎟️ Tickets", value=f"Өмнө: {old_tickets}\nОдоо: {len(self.tickets)}", inline=True)
         
         await ctx.send(embed=embed)
 
