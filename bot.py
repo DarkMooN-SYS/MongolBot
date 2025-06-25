@@ -53,7 +53,7 @@ bot.owner_id = 751055793893146624  # Change this to your Discord ID
 extensions = [
 
     # Utils Cogs - Channel must be loaded first
-    'cogs.utils.channel',
+    # 'cogs.utils.channel',
     'cogs.utils.support',
     'cogs.utils.help',
 

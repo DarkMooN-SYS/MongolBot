@@ -34,7 +34,8 @@ class ChannelPermission(commands.Cog):
         action = action.lower()
         if action not in ("enable", "disable"):
             await ctx.send("Зөвхөн 'enable' эсвэл 'disable' гэж бичнэ үү.")
-            return        # all эсвэл channel
+            return
+        # all эсвэл channel
         if target == "all":
             async with get_async_db_context('channel_permissions') as db:
                 if action == "enable":
@@ -66,15 +67,6 @@ class ChannelPermission(commands.Cog):
                     await ctx.send(f"{channel.mention} дээр командууд идэвхгүй боллоо!")
         else:
             await ctx.send("Жишээ: !channel enable all | !channel disable all | !channel enable #channel | !channel disable #channel")
-
-    @commands.Cog.listener()
-    async def on_message(self, message: discord.Message):
-        if message.author.bot or not message.guild:
-            return
-        # Зөвхөн зөвшөөрөгдсөн channel-д команд ажиллуулна
-        if not await is_channel_enabled(message.guild.id, message.channel.id):
-            return
-        await self.bot.process_commands(message)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(ChannelPermission(bot))
