@@ -33,12 +33,13 @@ class Lottery(commands.Cog):
         self.data_dir.mkdir(exist_ok=True)
         self.db_path = self.data_dir / 'lottery.db'
         
-        self.lottery_task.start()
+        # self.lottery_task.start()  # Moved to cog_load
 
     async def cog_load(self):
         """Cog ачаалагдахад database болон өгөгдлүүдийг сэргээх"""
         await self.init_database()
         await self.load_lottery_data()
+        self.lottery_task.start()
 
     async def init_database(self):
         """Lottery database үүсгэх"""
