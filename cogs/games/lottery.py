@@ -39,7 +39,8 @@ class Lottery(commands.Cog):
         """Cog ачаалагдахад database болон өгөгдлүүдийг сэргээх"""
         await self.init_database()
         await self.load_lottery_data()
-        self.lottery_task.start()
+        if not self.lottery_task.is_running():
+            self.lottery_task.start()
 
     async def init_database(self):
         """Lottery database үүсгэх"""
@@ -169,7 +170,8 @@ class Lottery(commands.Cog):
     async def cog_unload(self):
         """Cog унтрахад өгөгдлийг хадгалах"""
         await self.save_lottery_data()
-        self.lottery_task.cancel()
+        if self.lottery_task.is_running():
+            self.lottery_task.cancel()
 
     @property
     def bank(self) -> Any:
