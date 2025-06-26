@@ -122,22 +122,6 @@ class ServerBank(commands.Cog):
             return await ctx.send("⚠️ Зөвхөн серверийн эзэн ашиглах боломжтой!")
         balance = await self.get_balance(ctx.guild.id)
         await ctx.send(f"💰 Серверийн банкны үлдэгдэл: **{balance:,}₮**")    
-        
-    @commands.command(name='serverdep')
-    async def deposit_command(self, ctx: commands.Context, amount: Optional[int] = None):
-        if ctx.guild is None:
-            return await ctx.send("❌ Энэ команд зөвхөн сервер дээр ажиллана.")
-        if not await self.is_owner(ctx):
-            return await ctx.send("⚠️ Зөвхөн серверийн эзэн ашиглах боломжтой!")
-        
-        if amount is None:
-            return await ctx.send("⚠️ Мөнгөний хэмжээг заана уу! Жишээ: `!serverdep 1000`")
-        
-        if amount <= 0:
-            return await ctx.send("⚠️ Тоо хэмжээ 0-ээс их байх ёстой!")
-            
-        await self.update_balance(ctx.guild.id, amount)
-        await ctx.send(f"➕ {amount:,}₮ серверийн банканд нэмэгдлээ!")
     
     @commands.command(name='serverwith')
     async def withdraw_command(self, ctx: commands.Context, amount: Optional[int] = None):

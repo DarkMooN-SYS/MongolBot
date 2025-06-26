@@ -7,7 +7,7 @@ from ..utils.db_helper import get_suggestions_db
 from ..utils.channel import is_channel_enabled
 
 class Suggest(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         try:
             self.db = get_suggestions_db()
@@ -33,7 +33,7 @@ class Suggest(commands.Cog):
     UPDATES_CHANNEL_ID = 1350771327790747670  
     DELETE_DELAY = 5  
 
-    async def process_suggestion(self, ctx, suggestion, description):
+    async def process_suggestion(self, ctx: commands.Context, suggestion: str, description: str):
         """Санал хадгалж, embed хэлбэрээр илгээх"""
         self.cursor.execute("INSERT INTO suggestions (suggestion, description, author_id) VALUES (?, ?, ?)",
                             (suggestion, description, ctx.author.id))
@@ -44,7 +44,8 @@ class Suggest(commands.Cog):
         embed = discord.Embed(title="📜 Шинэ санал!", color=discord.Color.blue())
         embed.add_field(name="📢 Санал:", value=f"**{suggestion}**", inline=False)
         embed.add_field(name="💡 Тайлбар:", value=f"{description}", inline=False)
-        embed.set_footer(text=f"ID: {suggestion_id} • Санал гаргасан: {ctx.author.display_name}", icon_url=ctx.author.avatar.url)
+        avatar_url = ctx.author.avatar.url if ctx.author.avatar else None
+        embed.set_footer(text=f"ID: {suggestion_id} • Санал гаргасан: {ctx.author.display_name}", icon_url=avatar_url)
 
         suggestion_message = await ctx.channel.send(embed=embed)
         await suggestion_message.add_reaction("✅")
@@ -58,7 +59,7 @@ class Suggest(commands.Cog):
             pass
 
     @commands.command(name="suggest")
-    async def suggest(self, ctx, *, message):
+    async def suggest(self, ctx: commands.Context, *, message: str):
         """Хэрэглэгч зөвхөн `msuggest` ашиглаж санал оруулж болно"""
         
         if ctx.channel.id != self.SUGGESTION_CHANNEL_ID:
@@ -81,7 +82,7 @@ class Suggest(commands.Cog):
         await self.process_suggestion(ctx, suggestion, description)
 
     @commands.Cog.listener()
-    async def on_message(self, message):
+    async def on_message(self, message: discord.Message):
         """#suggestions сувгаас зөвшөөрөгдөөгүй мессежийг устгана"""
         if message.channel.id != self.SUGGESTION_CHANNEL_ID:
             return  # Зөвхөн саналын сувагт хяналт тавина
@@ -124,7 +125,7 @@ class Suggest(commands.Cog):
             pass  # Мессеж аль хэдийн устсан бол дахин устгахгүй
 
     @commands.Cog.listener()
-    async def on_reaction_add(self, reaction, user):
+    async def on_reaction_add(self, reaction: discord.Reaction, user: discord.abc.User):
         """Админ '🏆' дарсан үед саналыг батлах"""
         if user.bot or reaction.message.channel.id != self.SUGGESTION_CHANNEL_ID:
             return
@@ -132,7 +133,12 @@ class Suggest(commands.Cog):
         if str(reaction.emoji) == "🏆":
             embed = reaction.message.embeds[0]
             suggestion_text = embed.fields[0].value
-            suggestion_id = int(embed.footer.text.split("ID: ")[1].split(" • ")[0])
+            footer_text = embed.footer.text if embed.footer and embed.footer.text else None
+            if footer_text and "ID: " in footer_text:
+                suggestion_id = int(footer_text.split("ID: ")[1].split(" • ")[0])
+            else:
+                # If footer is missing or malformed, skip processing
+                return
 
             # ✅ **Өгөгдлийн сангаас тайлбарыг татах**
             self.cursor.execute("SELECT description FROM suggestions WHERE id = ?", (suggestion_id,))
@@ -144,7 +150,7 @@ class Suggest(commands.Cog):
             self.db.commit()
             
             updates_channel = self.bot.get_channel(self.UPDATES_CHANNEL_ID)
-            if updates_channel:
+            if isinstance(updates_channel, discord.TextChannel):
                 new_embed = discord.Embed(title="🚀 Шинэ хөгжүүлэлт эхэллээ!", color=discord.Color.green())
                 new_embed.add_field(name="📢 Санал:", value=suggestion_text, inline=False)
                 new_embed.add_field(name="💡 Тайлбар:", value=description_text, inline=False)
@@ -157,7 +163,7 @@ class Suggest(commands.Cog):
 
     @commands.command(name="update-status")
     @commands.has_permissions(manage_messages=True)
-    async def update_status(self, ctx, suggestion_id: int, *, new_status):
+    async def update_status(self, ctx: commands.Context, suggestion_id: int, *, new_status: str):
         """Админ саналуудын төлөв шинэчлэх боломжтой"""
         self.cursor.execute("UPDATE suggestions SET status = ? WHERE id = ?", (new_status, suggestion_id))
         self.db.commit()
