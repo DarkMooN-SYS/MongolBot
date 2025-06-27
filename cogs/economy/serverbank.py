@@ -72,30 +72,60 @@ class ServerBank(commands.Cog):
         
         success = []
         failed = []
+        already_exists = []
 
         async with get_async_db_context('serverbank') as conn:
             for user in users:
                 try:
                     member = await commands.UserConverter().convert(ctx, user)
-                    await conn.execute('INSERT OR IGNORE INTO server_bank (server_id, owner_id) VALUES (?, ?)',
-                                       (server_id, member.id))
-                    success.append(f"<@{member.id}>")
+                    
+                    # Эхлээд тухайн хэрэглэгч аль хэдийн эзэн байгаа эсэхийг шалгах
+                    async with conn.execute('SELECT 1 FROM server_bank WHERE server_id = ? AND owner_id = ?', (server_id, member.id)) as cursor:
+                        exists = await cursor.fetchone()
+                    
+                    if exists:
+                        already_exists.append(f"<@{member.id}>")
+                    else:
+                        await conn.execute('INSERT INTO server_bank (server_id, owner_id, balance) VALUES (?, ?, 0)',
+                                           (server_id, member.id))
+                        success.append(f"<@{member.id}>")
                 except Exception:
                     failed.append(user)
             await conn.commit()
 
-        result = "✅ Амжилттай нэмэгдсэн:\n" + "\n".join(success)
+        result = ""
+        if success:
+            result += "✅ Амжилттай нэмэгдсэн:\n" + "\n".join(success)
+        if already_exists:
+            if result:
+                result += "\n\n"
+            result += "⚠️ Аль хэдийн эзэн байгаа:\n" + "\n".join(already_exists)
         if failed:
-            result += "\n⚠️ Олдоогүй:\n" + "\n".join(failed)
+            if result:
+                result += "\n\n"
+            result += "❌ Олдоогүй:\n" + "\n".join(failed)
+        
+        if not result:
+            result = "❌ Ямар ч өөрчлөлт хийгдсэнгүй."
+            
         await ctx.send(result)
 
     @commands.command(name='removeowner')
     @commands.is_owner()
     async def remove_owner_command(self, ctx: commands.Context, server_id: int, user: discord.User):
         async with get_async_db_context('serverbank') as conn:
+            # Эхлээд тухайн хэрэглэгч тэр серверийн эзэн байгаа эсэхийг шалгах
+            async with conn.execute('SELECT 1 FROM server_bank WHERE server_id = ? AND owner_id = ?', (server_id, user.id)) as cursor:
+                exists = await cursor.fetchone()
+            
+            if not exists:
+                return await ctx.send(f"❌ {user.mention} сервер {server_id}-ийн эзэн биш байна.")
+            
+            # Устгах
             await conn.execute('DELETE FROM server_bank WHERE server_id = ? AND owner_id = ?', (server_id, user.id))
             await conn.commit()
-        await ctx.send(f"🗑️ {user.mention} сервер {server_id}-ийн эзэмшигчээс хасагдлаа.")
+        
+        await ctx.send(f"🗑️ {user.mention} сервер {server_id}-ийн эзэмшигчээс амжилттай хасагдлаа.")
 
     @commands.command(name='listowners')
     async def list_owners_command(self, ctx: commands.Context):
@@ -157,6 +187,60 @@ class ServerBank(commands.Cog):
             await self.update_balance(ctx.guild.id, amount)
             await ctx.send(f"❌ Таны хувийн дансанд мөнгө нэмэхэд алдаа гарлаа: {e}")
             return
+
+    @commands.command(name='removeserver')
+    @commands.is_owner()
+    async def remove_server_command(self, ctx: commands.Context, server_id: int):
+        """Серверийг бүрэн устгах команд (зөвхөн bot owner)"""
+        async with get_async_db_context('serverbank') as conn:
+            # Серверийн бүх эзэд болон үлдэгдлийг устгах
+            async with conn.execute('SELECT COUNT(*) FROM server_bank WHERE server_id = ?', (server_id,)) as cursor:
+                result = await cursor.fetchone()
+                count = result[0] if result else 0
+            
+            if count == 0:
+                return await ctx.send(f"❌ Сервер {server_id} олдсонгүй.")
+            
+            await conn.execute('DELETE FROM server_bank WHERE server_id = ?', (server_id,))
+            await conn.commit()
+        
+        await ctx.send(f"🗑️ Сервер {server_id} болон түүний бүх эзэд амжилттай устгагдлаа! ({count} эзэн устгагдлаа)")
+
+    @commands.command(name='listservers')
+    @commands.is_owner()
+    async def list_servers_command(self, ctx: commands.Context):
+        """Бүх серверүүдийн жагсаалт (зөвхөн bot owner)"""
+        async with get_async_db_context('serverbank') as conn:
+            async with conn.execute('''
+                SELECT server_id, COUNT(owner_id) as owner_count, SUM(balance) as total_balance 
+                FROM server_bank 
+                GROUP BY server_id 
+                ORDER BY server_id
+            ''') as cursor:
+                rows = await cursor.fetchall()
+
+        if not rows:
+            return await ctx.send("❌ Серверийн банк хоосон байна.")
+        
+        embed = discord.Embed(
+            title="📊 Серверийн банкны жагсаалт",
+            color=discord.Color.blue()
+        )
+        
+        for server_id, owner_count, total_balance in rows:
+            try:
+                guild = self.bot.get_guild(server_id)
+                server_name = guild.name if guild else f"Unknown Server ({server_id})"
+            except:
+                server_name = f"Unknown Server ({server_id})"
+            
+            embed.add_field(
+                name=f"🏛️ {server_name}",
+                value=f"ID: `{server_id}`\n👥 Эзэд: {owner_count}\n💰 Үлдэгдэл: {total_balance:,}₮",
+                inline=True
+            )
+        
+        await ctx.send(embed=embed)
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
         """Handle errors for all commands in this cog"""
