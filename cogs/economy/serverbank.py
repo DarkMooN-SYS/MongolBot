@@ -34,20 +34,41 @@ class ServerBank(commands.Cog):
                 return await cursor.fetchone() is not None
 
     async def update_balance(self, server_id: int, amount: int) -> None:
-        # Update balance for all owners (shared bank)
+        # Update balance for only one owner (the one with the smallest owner_id)
         async with get_async_db_context('serverbank') as conn:
-            # Хэрэв сөрөг дүн болох гэж байвал шалгах
-            if amount < 0:
-                current_balance = await self.get_balance(server_id)
-                if current_balance + amount < 0:
-                    # Сөрөг үлдэгдэл үүсгэхгүй - зөвхөн одоогийн үлдэгдэлийг 0 болгох
-                    amount = -current_balance
-            
-            await conn.execute(
-                'UPDATE server_bank SET balance = balance + ? WHERE server_id = ?',
-                (amount, server_id)
-            )
-            await conn.commit()
+            async with conn.execute(
+                'SELECT owner_id FROM server_bank WHERE server_id = ? ORDER BY owner_id ASC LIMIT 1',
+                (server_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    owner_id = row[0]
+                    await conn.execute(
+                        'UPDATE server_bank SET balance = balance + ? WHERE server_id = ? AND owner_id = ?',
+                        (amount, server_id, owner_id)
+                    )
+                    await conn.commit()
+
+    async def safe_withdraw(self, server_id: int, amount: int) -> bool:
+        """Аюулгүй мөнгө гаргах - сөрөг үлдэгдэл үүсгэхгүй (зөвхөн нэг эзэмшигчийн мөрөнд)"""
+        async with get_async_db_context('serverbank') as conn:
+            # Only check and update the row for the smallest owner_id
+            async with conn.execute(
+                'SELECT owner_id, balance FROM server_bank WHERE server_id = ? ORDER BY owner_id ASC LIMIT 1',
+                (server_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return False
+                owner_id, current_balance = row
+                if current_balance < amount or current_balance - amount < 0:
+                    return False
+                await conn.execute(
+                    'UPDATE server_bank SET balance = balance - ? WHERE server_id = ? AND owner_id = ?',
+                    (amount, server_id, owner_id)
+                )
+                await conn.commit()
+                return True
 
     async def get_balance(self, server_id: int) -> int:
         # Sum balance across all owners (shared bank)
@@ -178,9 +199,13 @@ class ServerBank(commands.Cog):
             return await ctx.send("⚠️ Серверийн банкны үлдэгдэл 0 эсвэл сөрөг байна!")
         if balance < amount:
             return await ctx.send(f"⚠️ Серверийн банкны үлдэгдэл хүрэлцэхгүй байна! Одоогийн үлдэгдэл: **{balance:,}₮**")
-          # Remove money from server bank
-        await self.update_balance(ctx.guild.id, -amount)
-          # Add money to user's personal balance
+        
+        # Аюулгүй мөнгө гаргах
+        success = await self.safe_withdraw(ctx.guild.id, amount)
+        if not success:
+            return await ctx.send("⚠️ Мөнгө гаргахад алдаа гарлаа!")
+        
+        # Add money to user's personal balance
         try:
             # Get the bank cog to add money to user's bank account
             bank_cog = self.bot.get_cog('Bank')
@@ -190,7 +215,7 @@ class ServerBank(commands.Cog):
                 await ctx.send(f"✅ {amount:,}₮ серверийн банкнаас хасагдаж, таны хувийн дансанд нэмэгдлээ!")
             else:
                 # If bank cog not found, still remove from server bank but notify user
-                await ctx.send(f"⚠️ {amount:,}₮ серверийн банкнаас хасагдлаа! (Bank систем олдсонгүй)")
+                await ctx.send(f"⚠️ {amount:,}₮ серверийн банкнаас хасагдаж, таны хувийн дансанд нэмэгдсэнгүй! (Bank систем олдсонгүй)")
         except Exception as e:
             # If adding to personal balance fails, add money back to server bank
             await self.update_balance(ctx.guild.id, amount)
