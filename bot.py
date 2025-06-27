@@ -82,6 +82,7 @@ extensions = [
     'cogs.admin.giveaway',
     'cogs.admin.fun',
     'cogs.admin.birthday',
+    'cogs.admin.celebration',
     'cogs.admin.report',
     'cogs.admin.event_policy',
 ]

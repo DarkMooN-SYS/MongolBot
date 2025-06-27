@@ -25,7 +25,8 @@ DATABASES = {
     'disabled_channels': 'disabled_channels.db',
     'blacklist': 'blacklist.db',
     'prefixes': 'prefixes.db',
-    'staff_channels': 'staff_channels.db'
+    'staff_channels': 'staff_channels.db',
+    'celebration': 'celebration.db'
 }
 
 def get_db_path(db_name: str) -> str:
@@ -90,6 +91,10 @@ def get_serverbank_db() -> sqlite3.Connection:
 def get_disabled_channels_db() -> sqlite3.Connection:
     """Disabled channels database холболт"""
     return get_sync_connection('disabled_channels')
+
+def get_celebration_db() -> sqlite3.Connection:
+    """Celebration database холболт"""
+    return get_sync_connection('celebration')
 
 # Context manager үүсгэх
 class DatabaseConnection:
