@@ -36,6 +36,13 @@ class ServerBank(commands.Cog):
     async def update_balance(self, server_id: int, amount: int) -> None:
         # Update balance for all owners (shared bank)
         async with get_async_db_context('serverbank') as conn:
+            # Хэрэв сөрөг дүн болох гэж байвал шалгах
+            if amount < 0:
+                current_balance = await self.get_balance(server_id)
+                if current_balance + amount < 0:
+                    # Сөрөг үлдэгдэл үүсгэхгүй - зөвхөн одоогийн үлдэгдэлийг 0 болгох
+                    amount = -current_balance
+            
             await conn.execute(
                 'UPDATE server_bank SET balance = balance + ? WHERE server_id = ?',
                 (amount, server_id)
@@ -167,21 +174,23 @@ class ServerBank(commands.Cog):
             return await ctx.send("⚠️ Тоо хэмжээ 0-ээс их байх ёстой!")
             
         balance = await self.get_balance(ctx.guild.id)
+        if balance <= 0:
+            return await ctx.send("⚠️ Серверийн банкны үлдэгдэл 0 эсвэл сөрөг байна!")
         if balance < amount:
-            return await ctx.send("⚠️ Серверийн банкны үлдэгдэл хүрэлцэхгүй байна.")
+            return await ctx.send(f"⚠️ Серверийн банкны үлдэгдэл хүрэлцэхгүй байна! Одоогийн үлдэгдэл: **{balance:,}₮**")
           # Remove money from server bank
         await self.update_balance(ctx.guild.id, -amount)
           # Add money to user's personal balance
         try:
-            # Get the economy cog to add money to user's account
-            economy_cog = self.bot.get_cog('Economy')
-            if economy_cog and hasattr(economy_cog, 'update_balance'):
-                # Type ignore for dynamic cog access
-                await economy_cog.update_balance('economy', ctx.author.id, amount)  # type: ignore
+            # Get the bank cog to add money to user's bank account
+            bank_cog = self.bot.get_cog('Bank')
+            if bank_cog and hasattr(bank_cog, 'update_balance'):
+                # Add to bank account, not economy account
+                await bank_cog.update_balance('bank', ctx.author.id, amount)  # type: ignore
                 await ctx.send(f"✅ {amount:,}₮ серверийн банкнаас хасагдаж, таны хувийн дансанд нэмэгдлээ!")
             else:
-                # If economy cog not found, still remove from server bank but notify user
-                await ctx.send(f"⚠️ {amount:,}₮ серверийн банкнаас хасагдлаа! (Economy систем олдсонгүй)")
+                # If bank cog not found, still remove from server bank but notify user
+                await ctx.send(f"⚠️ {amount:,}₮ серверийн банкнаас хасагдлаа! (Bank систем олдсонгүй)")
         except Exception as e:
             # If adding to personal balance fails, add money back to server bank
             await self.update_balance(ctx.guild.id, amount)
@@ -241,6 +250,28 @@ class ServerBank(commands.Cog):
             )
         
         await ctx.send(embed=embed)
+
+    @commands.command(name='fixbalance')
+    @commands.is_owner()
+    async def fix_balance_command(self, ctx: commands.Context, server_id: int):
+        """Серверийн банкны сөрөг үлдэгдлийг засах (зөвхөн bot owner)"""
+        async with get_async_db_context('serverbank') as conn:
+            # Тухайн серверийн одоогийн үлдэгдэлийг авах
+            async with conn.execute('SELECT SUM(balance) FROM server_bank WHERE server_id = ?', (server_id,)) as cursor:
+                result = await cursor.fetchone()
+                current_balance = result[0] if result and result[0] is not None else 0
+            
+            if current_balance >= 0:
+                return await ctx.send(f"✅ Сервер {server_id}-ийн үлдэгдэл аль хэдийн зөв байна: **{current_balance:,}₮**")
+            
+            # Сөрөг үлдэгдлийг 0 болгох
+            fix_amount = -current_balance
+            await conn.execute('UPDATE server_bank SET balance = 0 WHERE server_id = ?', (server_id,))
+            await conn.commit()
+            
+            await ctx.send(f"🔧 Сервер {server_id}-ийн үлдэгдэл засагдлаа!\n"
+                          f"⬇️ Өмнөх үлдэгдэл: **{current_balance:,}₮**\n"
+                          f"⬆️ Шинэ үлдэгдэл: **0₮**")
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception):
         """Handle errors for all commands in this cog"""

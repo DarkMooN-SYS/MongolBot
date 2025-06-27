@@ -84,6 +84,11 @@ class MinefieldView(discord.ui.View):
                 color = discord.Color.red()
                 self.disable_all_buttons()
                 self.multiplier = 0
+                # Алдагдсан мөнгө серверийн банкинд нэмэх
+                if hasattr(interaction, 'guild') and interaction.guild is not None:
+                    server_bank = self.cog.server_bank
+                    if server_bank:
+                        await server_bank.update_balance(interaction.guild.id, int(self.bet))
             else:
                 self.grid[index] = "✅"
                 self.opened.append(index)
@@ -269,7 +274,7 @@ class Game(commands.Cog):
             self.win_streak[user_id] = 0
             await self.bank_cog.update_balance('bank', ctx.author.id, -amount_f)
             if ctx.guild is not None:
-                await self.server_bank.update_balance(ctx.guild.id, amount_f)
+                await self.server_bank.update_balance(ctx.guild.id, int(amount_f))
             await ctx.send(
                 f"**{ctx.author.display_name}**\n"
                 f":money_with_wings: **{int(amount_f):,}** төгрөгөөр **{choice}** мөрий тавьсан.\n"
@@ -323,7 +328,7 @@ class Game(commands.Cog):
             self.win_streak[user_id] = 0
             await self.bank_cog.update_balance('bank', ctx.author.id, -amount_f)
             if ctx.guild is not None:
-                await self.server_bank.update_balance(ctx.guild.id, amount_f)
+                await self.server_bank.update_balance(ctx.guild.id, int(amount_f))
             await ctx.send(
                 f"**{ctx.author.display_name}**\n"
                 f":money_with_wings: **{int(amount_f):,}** төгрөгөөр **{choice}** мөрий тавьсан.\n"
@@ -382,7 +387,7 @@ class Game(commands.Cog):
         if multiplier == 0:
             await self.bank_cog.update_balance('bank', ctx.author.id, -amount_f)
             if ctx.guild is not None:
-                await self.server_bank.update_balance(ctx.guild.id, amount_f)
+                await self.server_bank.update_balance(ctx.guild.id, int(amount_f))
         else:
             await self.bank_cog.update_balance('bank', user_id, winnings)
         slot_display = f"| {' | '.join(slot_result)} |"
