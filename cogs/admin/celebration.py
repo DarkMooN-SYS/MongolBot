@@ -65,7 +65,11 @@ class Celebration(commands.Cog):
         try:
             owner = self.bot.get_user(self.bot.owner_id)
             if not owner:
-                owner = await self.bot.fetch_user(self.bot.owner_id)
+                try:
+                    owner = await self.bot.fetch_user(self.bot.owner_id)
+                except:
+                    logger.error(f"Could not fetch bot owner with ID {self.bot.owner_id}")
+                    return
             
             if owner:
                 # Баярын мэссеж
@@ -111,7 +115,8 @@ class Celebration(commands.Cog):
                 )
                 
                 embed.set_footer(text="MongolBot Milestone System")
-                embed.set_thumbnail(url=self.bot.user.display_avatar.url if self.bot.user.display_avatar else None)
+                if self.bot.user and self.bot.user.display_avatar:
+                    embed.set_thumbnail(url=self.bot.user.display_avatar.url)
                 
                 await owner.send(embed=embed)
                 logger.info(f"Milestone notification sent to owner: {milestone} servers")
@@ -234,7 +239,15 @@ class Celebration(commands.Cog):
     @commands.is_owner()
     async def milestone_announce(self, ctx: commands.Context, *, message: str):
         """Milestone announcement бүх сервэрт илгээх"""
+        if not message.strip():
+            await ctx.send("❌ Хоосон мэссеж илгээх боломжгүй!")
+            return
+            
         guild_count = len(self.bot.guilds)
+        if guild_count == 0:
+            await ctx.send("❌ Бот ямар ч сервэрт байхгүй байна!")
+            return
+            
         sent_count = 0
         failed_count = 0
         
@@ -252,7 +265,8 @@ class Celebration(commands.Cog):
         )
         
         embed.set_footer(text="MongolBot - Монголын #1 Discord Bot")
-        embed.set_thumbnail(url=self.bot.user.display_avatar.url if self.bot.user.display_avatar else None)
+        if self.bot.user and self.bot.user.display_avatar:
+            embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         
         # Прогресс мэссеж
         progress_msg = await ctx.send("📤 Announcement илгээж байна...")
