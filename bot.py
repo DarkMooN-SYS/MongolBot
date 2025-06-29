@@ -69,7 +69,7 @@ extensions = [
 
     # Games Cogs
     'cogs.games.game',
-    'cogs.games.lottery',    
+    'cogs.games.lottery',
     
     # Server Cogs
     'cogs.server.anime',
@@ -276,13 +276,40 @@ async def dm(ctx: commands.Context, target: str, *, message: str):
             channel = bot.get_channel(target_id)
 
             if user:
-                # Хэрэглэгч рүү DM илгээх
-                await user.send(message)
-                confirmation = await ctx.send(f"Мессеж {user.name} рүү амжилттай илгээгдлээ.")
+                # Хэрэглэгч рүү DM илгээхээс өмнө эрх шалгах
+                member = None
+                if ctx.guild:
+                    member = ctx.guild.get_member(user.id)
+                if member:
+                    # Хэрэглэгчийн DM, бичих, харах эрхийг шалгах
+                    can_dm = True
+                    if member.voice is None and ctx.guild is not None and not any(
+                        ch.permissions_for(member).send_messages for ch in ctx.guild.text_channels
+                    ):
+                        can_dm = False
+                    if not can_dm:
+                        confirmation = await ctx.send(f"{user.name} хэрэглэгчид DM илгээх боломжгүй: бичих/харуулах эрхгүй байна.")
+                        await asyncio.sleep(5)
+                        await confirmation.delete()
+                        await ctx.message.delete()
+                        return
+                try:
+                    await user.send(message)
+                    confirmation = await ctx.send(f"Мессеж {user.name} рүү амжилттай илгээгдлээ.")
+                except discord.Forbidden:
+                    confirmation = await ctx.send(f"{user.name} хэрэглэгч DM хаалттай байна.")
             elif channel and isinstance(channel, discord.TextChannel):
                 # Зөвхөн TextChannel бол мессеж илгээх
-                await channel.send(message)
-                confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
+                member = ctx.guild.get_member(ctx.author.id) if ctx.guild else None
+                if not member:
+                    confirmation = await ctx.send("Гишүүн олдсонгүй.")
+                else:
+                    perms = channel.permissions_for(member)
+                    if not perms.send_messages:
+                        confirmation = await ctx.send(f"Танд {channel.name} сувагт бичих эрх байхгүй байна.")
+                    else:
+                        await channel.send(message)
+                        confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
             else:
                 confirmation = await ctx.send("Хэрэглэгч эсвэл суваг олдсонгүй.")
         elif target.startswith("<#") and target.endswith(">"):
@@ -290,8 +317,16 @@ async def dm(ctx: commands.Context, target: str, *, message: str):
             channel_id = int(target.strip("<#>"))
             channel = bot.get_channel(channel_id)
             if channel and isinstance(channel, discord.TextChannel):
-                await channel.send(message)
-                confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
+                member = ctx.guild.get_member(ctx.author.id) if ctx.guild else None
+                if not member:
+                    confirmation = await ctx.send("Гишүүн олдсонгүй.")
+                else:
+                    perms = channel.permissions_for(member)
+                    if not perms.send_messages:
+                        confirmation = await ctx.send(f"Танд {channel.name} сувагт бичих эрх байхгүй байна.")
+                    else:
+                        await channel.send(message)
+                        confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
             else:
                 confirmation = await ctx.send("Суваг олдсонгүй.")
         else:
@@ -299,7 +334,6 @@ async def dm(ctx: commands.Context, target: str, *, message: str):
 
         # Хэрэглэгчийн анхны мессежийг устгах
         await ctx.message.delete()
-        
         # Амжилтын мессежийг 5 сек дараа устгах
         await asyncio.sleep(5)
         await confirmation.delete()
