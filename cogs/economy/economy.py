@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from discord.ext.commands.cooldowns import CooldownMapping, Cooldown, BucketType
 import datetime
-from typing import Optional
+from typing import Optional, List, Tuple, Any
 import random
 import logging
 import time
@@ -250,6 +250,20 @@ class Economy(commands.Cog):
         bonus = min(streak * 100, 500000)  # Example: 100 per streak, max 500000 bonus
         return base_reward + bonus
 
+    def number(self, number_str: str | None) -> int | str:
+        if number_str is None:
+            return "❌ Буруу формат! Тоон утга оруулна уу."
+        number_str = number_str.lower().strip().replace(",", ".")
+        multipliers = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
+        match = re.fullmatch(r"(\d+(\.\d+)?)([kmbt]?)", number_str)
+        if not match:
+            return "❌ Буруу формат! Зөвшөөрөгдсөн хэлбэр: 1.5k, 10m, 2.3b, 5.55k"
+        num, _, suffix = match.groups()
+        try:
+            return int(float(num) * multipliers.get(suffix, 1))
+        except ValueError:
+            return "❌ Алдаа гарлаа! Тоог хөрвүүлэх боломжгүй байна."
+
     @commands.command(name='add')
     @commands.is_owner()
     async def madd(self, ctx: commands.Context, account_type: str, user: discord.Member, amount: str) -> None:
@@ -298,7 +312,7 @@ class Economy(commands.Cog):
             if table == "economy":
                 current_balance = await self.get_user_balance(user.id)
             else:
-                current_balance = await self.get_balance(user.id, "bank")
+                current_balance = await self.get_bank_balance(user.id)
 
             if amt > current_balance:
                 await ctx.send(f"⚠️ {user.mention}-ийн **{table}** данснаас **{amt:,}₮** хасах боломжгүй! (Одоогийн баланс: {current_balance:,}₮)")
@@ -310,60 +324,232 @@ class Economy(commands.Cog):
             await ctx.send("⚠️ Алдаа гарлаа! Дахин оролдоно уу.")
             logging.error(f"Error in remove command: {e}")
 
+    async def get_bank_balance(self, user_id: int) -> int:
+        """Get the user's bank balance."""
+        await self.ensure_connection()
+        if self.conn is None:
+            raise RuntimeError("Database connection is not established!")
+        async with self.conn.execute("SELECT balance FROM bank WHERE user_id = ?", (user_id,)) as cursor:
+            result = await cursor.fetchone()
+            return result[0] if result else 5000
+
+    async def get_top_users(self, guild: discord.Guild, table: str, page: int = 1, per_page: int = 10) -> Tuple[List[Tuple[int, int]], int]:
+        """Серверийн топ хэрэглэгчдийг авах"""
+        await self.ensure_connection()
+        member_ids = [member.id for member in guild.members if not member.bot]
+        
+        if not member_ids:
+            return [], 0
+            
+        placeholders = ','.join('?' * len(member_ids))
+        offset = (page - 1) * per_page
+        
+        # Нийт тоо авах
+        count_query = f"SELECT COUNT(*) FROM {table} WHERE user_id IN ({placeholders}) AND balance > 0"
+        await self.ensure_connection()
+        if self.conn is None:
+            return [], 0
+        async with self.conn.execute(count_query, member_ids) as cursor:
+            count_row = await cursor.fetchone()
+            total_count = count_row[0] if count_row is not None else 0
+            
+        # Хуудаслалттай өгөгдөл авах
+        query = f"SELECT user_id, balance FROM {table} WHERE user_id IN ({placeholders}) AND balance > 0 ORDER BY balance DESC LIMIT {per_page} OFFSET {offset}"
+        await self.ensure_connection()
+        if self.conn is None:
+            return [], total_count
+        async with self.conn.execute(query, member_ids) as cursor:
+            rows = await cursor.fetchall()
+            users = [(int(row[0]), int(row[1])) for row in rows]
+            
+        return users, total_count
+
+    def create_top_embed(self, guild: discord.Guild, users: List[Tuple[int, int]], page: int, total_pages: int, table: str) -> discord.Embed:
+        """Топ хэрэглэгчдийн embed үүсгэх"""
+        table_name = "💰 Мөнгө" if table == "economy" else "🏦 Банк"
+        
+        if not users:
+            embed = discord.Embed(
+                title=f"📊 {guild.name} - {table_name} Топ",
+                description="Мэдээлэл олдсонгүй!",
+                color=0xFFD700
+            )
+            return embed
+            
+        desc = ""
+        start_rank = (page - 1) * 10 + 1
+        
+        for i, (user_id, balance) in enumerate(users):
+            rank = start_rank + i
+            user = guild.get_member(user_id)
+            name = user.mention if user else f"<@{user_id}>"
+            desc += f"**{rank}.** {name} — `{balance:,}₮`\n"
+            
+        embed = discord.Embed(
+            title=f"📊 {guild.name} - {table_name} Топ",
+            description=desc,
+            color=0xFFD700
+        )
+        embed.set_footer(text=f"Хуудас {page}/{total_pages}")
+        return embed
+
     @commands.command(name='top')
     async def top(self, ctx: commands.Context) -> None:
-        """Эдийн засгийн хамгийн баян 10 хэрэглэгчийн жагсаалт"""
+        """Тухайн серверийн хамгийн баян хэрэглэгчдийн жагсаалт (button-тай)"""
         await self.ensure_connection()
         if self.conn is None:
             await ctx.send("⚠️ Өгөгдлийн сантай холбогдож чадсангүй!")
-            logging.error("Database connection is not established in top command.")
             return
+        
+        if ctx.guild is None:
+            await ctx.send("⚠️ Энэ команд зөвхөн сервер дээр ажиллана!")
+            return
+            
         try:
-            async with self.conn.execute("SELECT user_id, balance FROM economy ORDER BY balance DESC LIMIT 10") as cursor:
-                top_users = await cursor.fetchall()
-            if not top_users:
-                await ctx.send("📊 Одоогоор жагсаалт хоосон байна!")
-                return
-            desc = ""
-            for i, (user_id, balance) in enumerate(top_users, 1):
-                user = ctx.guild.get_member(user_id) if ctx.guild else None
-                name = user.mention if user else f"<@{user_id}>"
-                desc += f"**{i}.** {name} — `{balance:,}₮`\n"
-            embed = discord.Embed(title="📊 Топ 10 баян хэрэглэгч", description=desc, color=0xFFD700)
-            await ctx.send(embed=embed)
+            # Анхны мэдээлэл авах (economy table, 1-р хуудас)
+            users, total_count = await self.get_top_users(ctx.guild, "economy", 1)
+            total_pages = max(1, (total_count + 9) // 10)  # 10-аар хуваах
+            
+            embed = self.create_top_embed(ctx.guild, users, 1, total_pages, "economy")
+            
+            # Button-ууд үүсгэх
+            view = TopLeaderboardView(self, ctx.guild, "economy", 1, total_pages)
+            await ctx.send(embed=embed, view=view)
+            
         except Exception as e:
             logging.error(f"Error in top command: {e}")
             await ctx.send("⚠️ Алдаа гарлаа! Дахин оролдоно уу.")
 
-    async def cog_unload(self) -> None:
-        if self.conn:
-            await self.conn.close()
 
-    def number(self, number_str: str | None) -> int | str:
-        if number_str is None:
-            return "❌ Буруу формат! Тоон утга оруулна уу."
-        number_str = number_str.lower().strip().replace(",", ".")
-        multipliers = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
-        match = re.fullmatch(r"(\d+(\.\d+)?)([kmbt]?)", number_str)
-        if not match:
-            return "❌ Буруу формат! Зөвшөөрөгдсөн хэлбэр: 1.5k, 10m, 2.3b, 5.55k"
-        num, _, suffix = match.groups()
+class TopLeaderboardView(discord.ui.View):
+    def __init__(self, economy_cog: 'Economy', guild: discord.Guild, table: str, page: int, total_pages: int):
+        super().__init__(timeout=300)
+        self.economy_cog = economy_cog
+        self.guild = guild
+        self.table = table
+        self.page = page
+        self.total_pages = total_pages
+        
+        # Button-уудийг динамикаар нэмэх
+        self._setup_buttons()
+    
+    def _setup_buttons(self) -> None:
+        """Одоогийн table-д тохирсон button-уудыг динамикаар үүсгэх"""
+        # Бүх button-уудыг арилгах
+        self.clear_items()
+        
+        # Navigation button-ууд үргэлж байна
+        # Эхний хуудас
+        first_btn = discord.ui.Button(
+            label='⏮️', 
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page == 1)
+        )
+        first_btn.callback = self.first_page_callback
+        self.add_item(first_btn)
+        
+        # Өмнөх хуудас  
+        prev_btn = discord.ui.Button(
+            label='◀️', 
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page == 1)
+        )
+        prev_btn.callback = self.prev_page_callback
+        self.add_item(prev_btn)
+        
+        # Toggle button - зөвхөн холбогдох нэг л button харагдана
+        if self.table == "economy":
+            # Balance leaderboard үзэж байгаа бол зөвхөн Bank button харагдана
+            toggle_btn = discord.ui.Button(
+                label='Bank', 
+                emoji='🏦', 
+                style=discord.ButtonStyle.primary
+            )
+            toggle_btn.callback = self.toggle_bank_callback
+        else:  # bank
+            # Bank leaderboard үзэж байгаа бол зөвхөн Balance button харагдана
+            toggle_btn = discord.ui.Button(
+                label='Balance', 
+                emoji='💰', 
+                style=discord.ButtonStyle.primary
+            )
+            toggle_btn.callback = self.toggle_economy_callback
+        
+        self.add_item(toggle_btn)
+        
+        # Дараагийн хуудас
+        next_btn = discord.ui.Button(
+            label='▶️', 
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page == self.total_pages)
+        )
+        next_btn.callback = self.next_page_callback
+        self.add_item(next_btn)
+        
+        # Сүүлийн хуудас
+        last_btn = discord.ui.Button(
+            label='⏭️', 
+            style=discord.ButtonStyle.secondary,
+            disabled=(self.page == self.total_pages)
+        )
+        last_btn.callback = self.last_page_callback
+        self.add_item(last_btn)
+    
+    async def first_page_callback(self, interaction: discord.Interaction) -> None:
+        self.page = 1
+        await self.update_embed(interaction)
+    
+    async def prev_page_callback(self, interaction: discord.Interaction) -> None:
+        if self.page > 1:
+            self.page -= 1
+        await self.update_embed(interaction)
+    
+    async def toggle_economy_callback(self, interaction: discord.Interaction) -> None:
+        self.table = "economy"
+        self.page = 1
+        await self.recalculate_and_update(interaction)
+    
+    async def toggle_bank_callback(self, interaction: discord.Interaction) -> None:
+        self.table = "bank"
+        self.page = 1
+        await self.recalculate_and_update(interaction)
+    
+    async def next_page_callback(self, interaction: discord.Interaction) -> None:
+        if self.page < self.total_pages:
+            self.page += 1
+        await self.update_embed(interaction)
+    
+    async def last_page_callback(self, interaction: discord.Interaction) -> None:
+        self.page = self.total_pages
+        await self.update_embed(interaction)
+    
+    
+    async def recalculate_and_update(self, interaction: discord.Interaction) -> None:
+        """Table сольж, нийт хуудасны тоог дахин тооцоолох"""
         try:
-            return int(float(num) * multipliers.get(suffix, 1))
-        except ValueError:
-            return "❌ Алдаа гарлаа! Тоог хөрвүүлэх боломжгүй байна."
-
-    async def get_balance(self, user_id: int, table: str = "bank") -> int:
-        await self.ensure_connection()
-        if self.conn is None:
-            raise RuntimeError("Database connection is not established!")
-        try:
-            async with self.conn.execute(f"SELECT balance FROM {table} WHERE user_id=?", (user_id,)) as cursor:
-                result = await cursor.fetchone()
-                return int(result[0]) if result and result[0] is not None else 5000
+            users, total_count = await self.economy_cog.get_top_users(self.guild, self.table, self.page)
+            self.total_pages = max(1, (total_count + 9) // 10)
+            embed = self.economy_cog.create_top_embed(self.guild, users, self.page, self.total_pages, self.table)
+            self._setup_buttons()  # Button-уудыг дахин тохируулах
+            await interaction.response.edit_message(embed=embed, view=self)
         except Exception as e:
-            logging.error(f"SQLite Error in get_balance: {e}")
-            return 5000
+            await interaction.response.send_message("⚠️ Алдаа гарлаа!", ephemeral=True)
+    
+    async def update_embed(self, interaction: discord.Interaction) -> None:
+        """Embed-ийг шинэчлэх"""
+        try:
+            users, _ = await self.economy_cog.get_top_users(self.guild, self.table, self.page)
+            embed = self.economy_cog.create_top_embed(self.guild, users, self.page, self.total_pages, self.table)
+            self._setup_buttons()  # Button-уудыг дахин тохируулах
+            await interaction.response.edit_message(embed=embed, view=self)
+        except Exception as e:
+            await interaction.response.send_message("⚠️ Алдаа гарлаа!", ephemeral=True)
+    
+    async def on_timeout(self) -> None:
+        """Timeout болоход button-уудыг идэвхгүй болгох"""
+        for item in self.children:
+            if isinstance(item, discord.ui.Button):
+                item.disabled = True
 
     def cog_check(self, ctx: commands.Context) -> bool:
         # Only allow commands in guilds; channel enable check must be async elsewhere
