@@ -2,6 +2,7 @@ aiosqlite
 discord.py
 python-dotenv
 wavelink
+flask
 aiohttp
 PyNaCl
 pytz
