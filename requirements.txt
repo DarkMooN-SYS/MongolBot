@@ -16,3 +16,4 @@ topggpy
 pymysql
 soundcloud-lib
 cryptography
+flask
