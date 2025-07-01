@@ -531,9 +531,18 @@ class TopLeaderboardView(discord.ui.View):
             self.total_pages = max(1, (total_count + 9) // 10)
             embed = self.economy_cog.create_top_embed(self.guild, users, self.page, self.total_pages, self.table)
             self._setup_buttons()  # Button-уудыг дахин тохируулах
-            await interaction.response.edit_message(embed=embed, view=self)
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=embed, view=self)
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
         except Exception as e:
-            await interaction.response.send_message("⚠️ Алдаа гарлаа!", ephemeral=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("⚠️ Алдаа гарлаа!", ephemeral=True)
+                else:
+                    await interaction.followup.send("⚠️ Алдаа гарлаа!", ephemeral=True)
+            except Exception:
+                pass
     
     async def update_embed(self, interaction: discord.Interaction) -> None:
         """Embed-ийг шинэчлэх"""
@@ -541,9 +550,18 @@ class TopLeaderboardView(discord.ui.View):
             users, _ = await self.economy_cog.get_top_users(self.guild, self.table, self.page)
             embed = self.economy_cog.create_top_embed(self.guild, users, self.page, self.total_pages, self.table)
             self._setup_buttons()  # Button-уудыг дахин тохируулах
-            await interaction.response.edit_message(embed=embed, view=self)
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=embed, view=self)
+            else:
+                await interaction.edit_original_response(embed=embed, view=self)
         except Exception as e:
-            await interaction.response.send_message("⚠️ Алдаа гарлаа!", ephemeral=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("⚠️ Алдаа гарлаа!", ephemeral=True)
+                else:
+                    await interaction.followup.send("⚠️ Алдаа гарлаа!", ephemeral=True)
+            except Exception:
+                pass
     
     async def on_timeout(self) -> None:
         """Timeout болоход button-уудыг идэвхгүй болгох"""
