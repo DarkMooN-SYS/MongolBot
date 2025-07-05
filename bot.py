@@ -126,6 +126,13 @@ async def load_cogs_and_sync():
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} амжилттай холбогдлоо!")  # Console-д харуулах
+    # Persistent staff setup view бүртгэх
+    try:
+        from cogs.admin.report import StaffSetupView
+        for guild in bot.guilds:
+            bot.add_view(StaffSetupView(guild.id))
+    except Exception as e:
+        print(f"[ERROR] StaffSetupView persistent view бүртгэхэд алдаа: {e}")
     await load_cogs_and_sync()
 
 @bot.event
@@ -146,91 +153,68 @@ async def on_command_error(ctx: commands.Context, error: Exception):
         return  # Команд олдохгүй бол алдаа харуулахгүй
         
     elif isinstance(error, commands.MissingRequiredArgument):
-        # Командын нэрийг авах
         command_name = ctx.command.name if ctx.command else "энэ команд"
-        
-        # Тухайн командын хэрэглээг харуулах жишээ гаргах
-        usage = ""
-        if ctx.command and ctx.command.help:
-            usage = f"\n\nЖишээ нь: `{ctx.prefix}{command_name} {ctx.command.help}`"
-        
-        # Дутуу орсон мэдээллийн нэрийг монгол болгох
         param_name = error.param.name
         translated_param = {
-            "member": "хэрэглэгч",
-            "user": "хэрэглэгч",
-            "channel": "суваг",
-            "role": "роль",
-            "message": "мессеж",
-            "amount": "тоо хэмжээ",
-            "reason": "шалтгаан",
-            "target": "зорилтот",
-            "text": "текст",
-            "name": "нэр",
-            "description": "тайлбар"
+            "member": "хэрэглэгч", "user": "хэрэглэгч", "channel": "суваг", 
+            "role": "роль", "amount": "дүн", "reason": "шалтгаан", 
+            "text": "текст", "name": "нэр"
         }.get(param_name, param_name)
         
-        error_embed.description = f"❗ **{command_name}** командыг ашиглахад **{translated_param}** гэсэн мэдээлэл дутуу байна.{usage}"
-        error_embed.set_footer(text=f"💡 Командын бүрэн заавар авахын тулд {ctx.prefix}help {command_name} гэж бичнэ үү")
+        error_embed.description = f"❌ **{translated_param}** дутуу байна!\n💡 `{ctx.prefix}help {command_name}` - заавар харах"
         
     elif isinstance(error, AttributeError) and str(error).endswith("'NoneType' object has no attribute 'lower'"):
         command_name = ctx.command.name if ctx.command else "энэ команд"
-        error_embed.description = f"❌ **{command_name}** командад хоосон утга оруулсан байна.\n💡 Та утга оруулсан эсэхээ шалгаад дахин оролдоно уу"
+        error_embed.description = f"❌ **{command_name}** - хоосон утга оруулсан байна!"
         
     elif isinstance(error, commands.CommandOnCooldown):
-        await send_cooldown_error(ctx, error)
+        cooldown_time = int(error.retry_after)
+        message = await ctx.send(f"⏳ Энэ командыг дахин ашиглахын тулд `{cooldown_time}` секунд хүлээнэ үү.")
+        while cooldown_time > 0:
+            await asyncio.sleep(1)
+            cooldown_time -= 1
+            try:
+                await message.edit(content=f"⏳ Энэ командыг дахин ашиглахын тулд `{cooldown_time}` секунд хүлээнэ үү.")
+            except (discord.NotFound, discord.HTTPException):
+                break
+        try:
+            await message.edit(content="✅ Одоо энэ командыг дахин ашиглаж болно!")
+        except (discord.NotFound, discord.HTTPException):
+            pass
         return
         
     elif isinstance(error, commands.MissingPermissions):
         missing_perms = []
         for perm in error.missing_permissions:
             translated_perm = {
-                "kick_members": "гишүүдийг хөөх",
-                "ban_members": "гишүүдийг бандах",
-                "administrator": "админ",
-                "manage_channels": "сувгуудыг удирдах",
-                "manage_guild": "серверийг удирдах",
-                "manage_messages": "мессежүүдийг удирдах",
-                "manage_roles": "ролиудыг удирдах",
-                "manage_webhooks": "вебхүүкүүдийг удирдах",
-                "manage_emojis": "эможинуудыг удирдах",
-                "view_audit_log": "аудит лог харах",
-                "view_guild_insights": "сервер статистик харах",
-                "moderate_members": "гишүүдийг зохицуулах"
-            }.get(perm, perm.replace("_", " ").title())
+                "kick_members": "хөөх", "ban_members": "бандах", "administrator": "админ",
+                "manage_channels": "суваг удирдах", "manage_guild": "сервер удирдах",
+                "manage_messages": "мессеж удирдах", "manage_roles": "роль удирдах"
+            }.get(perm, perm.replace("_", " "))
             missing_perms.append(f"`{translated_perm}`")
             
-        error_embed.description = f"❌ Танд дараах эрх байхгүй байна:\n{', '.join(missing_perms)}"
+        error_embed.description = f"❌ Танд эрх хүрэлцэхгүй: {', '.join(missing_perms)}"
         
     elif isinstance(error, commands.BotMissingPermissions):
         missing_perms = []
         for perm in error.missing_permissions:
             translated_perm = {
-                "kick_members": "гишүүдийг хөөх",
-                "ban_members": "гишүүдийг бандах",
-                "administrator": "админ",
-                "manage_channels": "сувгуудыг удирдах",
-                "manage_guild": "серверийг удирдах",
-                "manage_messages": "мессежүүдийг удирдах",
-                "manage_roles": "ролиудыг удирдах",
-                "manage_webhooks": "вебхүүкүүдийг удирдах",
-                "manage_emojis": "эможинуудыг удирдах",
-                "view_audit_log": "аудит лог харах",
-                "view_guild_insights": "сервер статистик харах",
-                "moderate_members": "гишүүдийг зохицуулах"
-            }.get(perm, perm.replace("_", " ").title())
+                "kick_members": "хөөх", "ban_members": "бандах", "administrator": "админ",
+                "manage_channels": "суваг удирдах", "manage_guild": "сервер удирдах",
+                "manage_messages": "мессеж удирдах", "manage_roles": "роль удирдах"
+            }.get(perm, perm.replace("_", " "))
             missing_perms.append(f"`{translated_perm}`")
             
-        error_embed.description = f"❌ Ботд дараах эрх байхгүй байна:\n{', '.join(missing_perms)}"
+        error_embed.description = f"❌ Ботд эрх хүрэлцэхгүй: {', '.join(missing_perms)}"
         
     elif isinstance(error, commands.MemberNotFound):
-        error_embed.description = "❌ Таны заасан хэрэглэгч олдсонгүй.\n💡 Та хэрэглэгчийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
+        error_embed.description = "❌ Хэрэглэгч олдсонгүй!"
         
     elif isinstance(error, commands.ChannelNotFound):
-        error_embed.description = "❌ Таны заасан суваг олдсонгүй.\n💡 Та сувгийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
+        error_embed.description = "❌ Суваг олдсонгүй!"
         
     elif isinstance(error, commands.RoleNotFound):
-        error_embed.description = "❌ Таны заасан роль олдсонгүй.\n💡 Та ролийн нэр эсвэл ID-г зөв оруулсан эсэхээ шалгана уу"
+        error_embed.description = "❌ Роль олдсонгүй!"
         
     elif str(error) == "Channel not enabled for commands.":
         await send_channel_permission_error(ctx)
@@ -238,28 +222,20 @@ async def on_command_error(ctx: commands.Context, error: Exception):
     
     else:
         # Алдааны мэдээллийг логдох
-        error_embed.description = "⚠️ Уучлаарай, алдаа гарлаа. Админтай холбогдоно уу."
-        logging.error(f"Алдаа гарлаа командад: {ctx.command}")
-        logging.error(f"Алдааны мэдээлэл: {error}")
-        logging.error("Traceback:")
+        error_embed.description = "⚠️ Алдаа гарлаа. Админтай холбогдоно уу."
+        logging.error(f"Алдаа: {ctx.command} - {error}")
         logging.error(traceback.format_exc())
 
     try:
         # Алдааны мессеж илгээх
         message = await ctx.send(embed=error_embed)
-        # 10 секундын дараа мессежийг устгах
-        await asyncio.sleep(10)
+        # 7 секундын дараа мессежийг устгах
+        await asyncio.sleep(7)
         await message.delete()
     except discord.Forbidden:
-        pass  # Хэрэв мессеж илгээх эрх байхгүй бол алгасах
-    except (RuntimeError, discord.ConnectionClosed, discord.HTTPException):
-        # Session хаагдсан эсвэл холболт тасарсан бол алгасах
-        logger.warning("Discord session хаагдсан эсвэл холболт тасарсан тул алдааны мессеж илгээж чадсангүй")
         pass
     except Exception as send_error:
-        # Бусад алдаануудыг log-д бичих
-        logger.error(f"Алдааны мессеж илгээхэд алдаа гарлаа: {send_error}")
-        pass
+        logger.error(f"Алдааны мессеж илгээхэд алдаа: {send_error}")
 
 bot.remove_command("help")
 
@@ -442,56 +418,16 @@ async def list_all_commands(ctx: commands.Context):
         await ctx.send(embed=embed)
 
 # --- Custom error handlers ---
-async def send_cooldown_error(ctx: commands.Context, error: commands.CommandOnCooldown):
-    cooldown_time = int(error.retry_after)
-    minutes = cooldown_time // 60
-    seconds = cooldown_time % 60
-    if minutes > 0:
-        time_text = f"{minutes} минут {seconds} секунд"
-    else:
-        time_text = f"{seconds} секунд"
-    error_embed = discord.Embed(color=discord.Color.red())
-    error_embed.set_author(name="⏳ Түр хүлээнэ үү")
-    error_embed.description = f"⏳ Та {error.cooldown.per:.1f} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\nДахин ашиглахын тулд `{time_text}` хүлээнэ үү!"
-    try:
-        message = await ctx.send(embed=error_embed)
-        while cooldown_time > 0:
-            await asyncio.sleep(1)
-            cooldown_time -= 1
-            if cooldown_time > 60:
-                time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
-            else:
-                time_text = f"{cooldown_time} секунд"
-            error_embed.description = f"⏳ Та {error.cooldown.per:.1f} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\nДахин ашиглахын тулд `{time_text}` хүлээнэ үү!"
-            try:
-                await message.edit(embed=error_embed)
-            except (discord.NotFound, discord.HTTPException, RuntimeError):
-                break
-        try:
-            error_embed.color = discord.Color.green()
-            error_embed.set_author(name="✅ Команд бэлэн боллоо")
-            error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
-            await message.edit(embed=error_embed)
-        except (discord.NotFound, discord.HTTPException, RuntimeError):
-            pass
-    except (discord.Forbidden, RuntimeError, discord.ConnectionClosed, discord.HTTPException):
-        pass
 
 async def send_channel_permission_error(ctx: commands.Context):
     error_embed = discord.Embed(color=discord.Color.red())
     error_embed.set_author(name="❌ Алдаа")
-    error_embed.description = "❌ Энэ сувгаар командыг ашиглах боломжгүй! Админ зөвшөөрсөн сувгаар ашиглана уу."
+    error_embed.description = "❌ Энэ сувгаар команд ашиглах боломжгүй!"
     try:
         message = await ctx.send(embed=error_embed)
-        await asyncio.sleep(10)
+        await asyncio.sleep(7)
         await message.delete()
-    except discord.Forbidden:
-        pass
-    except (RuntimeError, discord.ConnectionClosed, discord.HTTPException):
-        logger.warning("Discord session хаагдсан эсвэл холболт тасарсан тул алдааны мессеж илгээж чадсангүй")
-        pass
-    except Exception as send_error:
-        logger.error(f"Алдааны мессеж илгээхэд алдаа гарлаа: {send_error}")
+    except Exception:
         pass
 
 # Run the bot
