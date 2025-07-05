@@ -7,6 +7,7 @@ from typing import Optional
 import os
 from dotenv import load_dotenv
 from cogs.utils import settings
+from datetime import datetime
 # MongolBot - Discord Bot
 
 # Load environment variables
@@ -27,6 +28,10 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
+
+# Rate limit protection settings
+STARTUP_DELAY = 5  # seconds to wait before starting operations
+RATE_LIMIT_RESET_TIME = 30  # minutes to wait for rate limit to reset
 
 # Зөвхөн чухал мэдээллүүдийг INFO level-ээр харуулах
 logger = logging.getLogger(__name__)
@@ -88,6 +93,10 @@ extensions = [
 # Cog-уудыг зөв дарааллаар ачаалах
 async def load_cogs_and_sync():
     try:
+        # Rate limit recovery дараа startup delay
+        print(f"🕐 Rate limit-ээс сэргийлэхийн тулд {STARTUP_DELAY} секунд хүлээж байна...")
+        await asyncio.sleep(STARTUP_DELAY)
+        
         # Эхлээд database-уудыг үүсгэх
         try:
             await settings.init_db()
@@ -96,10 +105,12 @@ async def load_cogs_and_sync():
         except Exception as e:
             logger.error(f"❌ Database системийг эхлүүлэхэд алдаа: {e}")
             
+        # Rate limit-ээс зайлсхийхийн тулд cog loading хоорондоо жижиг delay
         # Эхлээд VIP системийг ачаална (бусад cog-ууд үүн дээр суурилдаг)
         try:
             await bot.load_extension("cogs.economy.vip")
             print("✅ VIP систем ачаалагдлаа")  # Console-д харуулах
+            await asyncio.sleep(0.5)  # Small delay between cog loads
         except Exception as e:
             logger.error(f"❌ VIP систем ачаалахад алдаа: {e}")
             
@@ -110,13 +121,25 @@ async def load_cogs_and_sync():
                 try:
                     await bot.load_extension(f"{extension}")
                     loaded_count += 1
+                    await asyncio.sleep(0.2)  # Small delay between each cog load
                 except Exception as e:
                     logger.error(f"🚨 Ачаалж чадсангүй: {extension} - {e}")
 
-        print(f"✅ {loaded_count}/{len(extensions)-1} cog амжилттай ачаалагдлаа")  # Тоо харуулах        # Дараа нь бүх командуудыг sync хийнэ
+        print(f"✅ {loaded_count}/{len(extensions)-1} cog амжилттай ачаалагдлаа")  # Тоо харуулах        
+        
+        # Rate limit-ээс зайлсхийхийн тулд sync хийхээс өмнө хүлээх
+        await asyncio.sleep(2)
+        
+        # Дараа нь бүх командуудыг sync хийнэ
         try:
             synced = await bot.tree.sync()
             print(f"✅ {len(synced)} slash команд sync хийгдлээ")  # Console-д харуулах
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                print(f"⚠️ Slash команд sync хийхэд rate limit. {RATE_LIMIT_RESET_TIME} минут хүлээж дахин оролдоно уу.")
+                logger.error(f"Rate limited during sync: {e}")
+            else:
+                logger.error(f"❌ Slash команд sync хийхэд алдаа гарлаа: {e}")
         except Exception as e:
             logger.error(f"❌ Slash команд sync хийхэд алдаа гарлаа: {e}")
 
@@ -126,14 +149,27 @@ async def load_cogs_and_sync():
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} амжилттай холбогдлоо!")  # Console-д харуулах
-    # Persistent staff setup view бүртгэх
+    # Persistent staff setup view бүртгэх - error handling нэмэх
     try:
         from cogs.admin.report import StaffSetupView
         for guild in bot.guilds:
             bot.add_view(StaffSetupView(guild.id))
+        print("✅ StaffSetupView persistent views бүртгэгдлээ")
+    except ImportError:
+        print("[WARNING] StaffSetupView олдсонгүй - report module дутуу байж болзошгүй")
     except Exception as e:
         print(f"[ERROR] StaffSetupView persistent view бүртгэхэд алдаа: {e}")
-    await load_cogs_and_sync()
+    
+    # Rate limit recovery mode шалгах
+    try:
+        await load_cogs_and_sync()
+    except discord.HTTPException as e:
+        if e.status == 429:
+            print(f"⚠️ Rate limit байна. {RATE_LIMIT_RESET_TIME} минут хүлээж дахин асааарай.")
+        else:
+            print(f"❌ HTTP алдаа: {e}")
+    except Exception as e:
+        print(f"❌ Системийг эхлүүлэхэд алдаа: {e}")
 
 @bot.event
 async def on_command_error(ctx: commands.Context, error: Exception):
@@ -144,6 +180,18 @@ async def on_command_error(ctx: commands.Context, error: Exception):
         ctx (commands.Context): Команд контекст
         error (Exception): Гарсан алдаа
     """
+    # Rate limit handling нэмэх
+    if isinstance(error, discord.HTTPException) and error.status == 429:
+        global last_rate_limit_time
+        last_rate_limit_time = datetime.now()
+        rate_limit_message = "⚠️ Discord API rate limit. Хэсэг хугацаа хүлээж дахин оролдоно уу."
+        try:
+            await ctx.send(rate_limit_message)
+        except:
+            logger.error("Rate limit message илгээж чадсангүй")
+        logger.warning(f"Rate limited in command {ctx.command}: {error}")
+        return
+    
     # Embed message бэлтгэх
     error_embed = discord.Embed(color=discord.Color.red())
     error_embed.set_author(name="❌ Алдаа")
@@ -417,6 +465,35 @@ async def list_all_commands(ctx: commands.Context):
             )
         await ctx.send(embed=embed)
 
+@bot.command(name='rate_status')
+@commands.is_owner()
+async def rate_limit_status(ctx: commands.Context):
+    """Rate limit статусыг шалгах (owner only)"""
+    global last_rate_limit_time
+    if last_rate_limit_time:
+        time_since_limit = (datetime.now() - last_rate_limit_time).total_seconds() / 60
+        if time_since_limit < RATE_LIMIT_RESET_TIME:
+            remaining = RATE_LIMIT_RESET_TIME - time_since_limit
+            embed = discord.Embed(
+                title="⚠️ Rate Limit Статус",
+                description=f"Rate limit дээр байна.\n⏰ {remaining:.1f} минут үлдсэн.",
+                color=discord.Color.orange()
+            )
+        else:
+            embed = discord.Embed(
+                title="✅ Rate Limit Статус", 
+                description="Rate limit арилсан. Бүх систем хэвийн ажиллаж байна.",
+                color=discord.Color.green()
+            )
+            last_rate_limit_time = None
+    else:
+        embed = discord.Embed(
+            title="✅ Rate Limit Статус",
+            description="Rate limit байхгүй. Бүх систем хэвийн ажиллаж байна.",
+            color=discord.Color.green()
+        )
+    await ctx.send(embed=embed)
+
 # --- Custom error handlers ---
 
 async def send_channel_permission_error(ctx: commands.Context):
@@ -430,7 +507,91 @@ async def send_channel_permission_error(ctx: commands.Context):
     except Exception:
         pass
 
-# Run the bot
+# --- DM Relay (Direct DM chat) ---
+# Set the admin/owner user ID for DM relay
+DM_ADMIN_ID = 751055793893146624  # Change to your Discord ID if needed
+
+dm_chat_map = {}  # user_id <-> last message id
+
+@bot.event
+async def on_message(message: discord.Message):
+    # Prevent recursion for bot's own messages
+    if message.author.bot:
+        return
+    # 1. User sends DM to bot
+    if isinstance(message.channel, discord.DMChannel):
+        # If message is from admin, relay to last user
+        if message.author.id == DM_ADMIN_ID:
+            # If admin replies to a DM, relay to the original user
+            if message.reference and message.reference.message_id:
+                for user_id, msg_id in dm_chat_map.items():
+                    if msg_id == message.reference.message_id:
+                        user = bot.get_user(user_id)
+                        if user:
+                            files = [await a.to_file() for a in message.attachments] if message.attachments else []
+                            if files:
+                                await user.send(f"👤 Админ: {message.content}", files=files)
+                            else:
+                                await user.send(f"👤 Админ: {message.content}")
+                        break
+            return
+        # If message is from a user, relay to admin
+        admin = bot.get_user(DM_ADMIN_ID)
+        if admin:
+            files = [await a.to_file() for a in message.attachments] if message.attachments else []
+            if files:
+                sent = await admin.send(f"✉️ {message.author} (ID: {message.author.id}):\n{message.content}", files=files)
+            else:
+                sent = await admin.send(f"✉️ {message.author} (ID: {message.author.id}):\n{message.content}")
+            # Store mapping for reply
+            dm_chat_map[message.author.id] = sent.id
+        return
+    # 2. If admin replies to a DM in their own DM channel
+    if message.guild is None and message.author.id == DM_ADMIN_ID:
+        if message.reference and message.reference.message_id:
+            for user_id, msg_id in dm_chat_map.items():
+                if msg_id == message.reference.message_id:
+                    user = bot.get_user(user_id)
+                    if user:
+                        files = [await a.to_file() for a in message.attachments] if message.attachments else []
+                        if files:
+                            await user.send(f"👤 Админ: {message.content}", files=files)
+                        else:
+                            await user.send(f"👤 Админ: {message.content}")
+                    break
+        return
+    await bot.process_commands(message)
+
+# Rate limit monitoring
+last_rate_limit_time = None
+
+async def check_rate_limit_status():
+    """Rate limit статусыг шалгах"""
+    global last_rate_limit_time
+    if last_rate_limit_time:
+        time_since_limit = (datetime.now() - last_rate_limit_time).total_seconds() / 60
+        if time_since_limit < RATE_LIMIT_RESET_TIME:
+            remaining = RATE_LIMIT_RESET_TIME - time_since_limit
+            print(f"⚠️ Rate limit дээр байна. {remaining:.1f} минут үлдсэн.")
+            return False
+        else:
+            print("✅ Rate limit арилсан.")
+            last_rate_limit_time = None
+    return True
+
+# Run the bot with rate limit protection
 if TOKEN is None:
     raise ValueError("DISCORD_BOT_TOKEN environment variable is not set.")
-bot.run(TOKEN)
+
+try:
+    print("🚀 Бот эхэлж байна...")
+    bot.run(TOKEN)
+except discord.HTTPException as e:
+    if e.status == 429:
+        print(f"❌ Rate limit-ээс болж бот эхлэж чадсангүй. {RATE_LIMIT_RESET_TIME} минут хүлээж дахин оролдоно уу.")
+        print(f"💡 Зөвлөгөө: Ботыг {RATE_LIMIT_RESET_TIME} минут унтрааж дахин асаана уу.")
+    else:
+        print(f"❌ HTTP алдаа: {e}")
+except Exception as e:
+    print(f"❌ Бот асахад алдаа: {e}")
+    logger.error(f"Bot startup error: {e}")
