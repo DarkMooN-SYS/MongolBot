@@ -5,13 +5,17 @@ import json
 import logging
 import os
 import asyncio
-import aiosqlite
+import time
 from typing import Optional, Dict, Any, Tuple, Union
 from ..utils.database import get_async_db_context
 from ..utils.channel import is_channel_enabled
 
 # Set up logging
 logger = logging.getLogger(__name__)
+
+# Rate limiting constants
+BUTTON_COOLDOWN = 2.0  # 2 секундийн cooldown
+API_RETRY_DELAY = 1.0  # API rate limit алдааны дараа хүлээх хугацаа
 
 def safe_parse_datetime(date_str: str) -> Optional[datetime]:
     """Аюулгүй datetime хөрвүүлэх функц"""
@@ -50,7 +54,25 @@ except json.JSONDecodeError:
     DEFAULT_COOLDOWN = 10
     DEFAULT_MAX_LOAN = 1000000
     DEFAULT_LOAN_INTEREST_RATE = 0.05
-    DEFAULT_COOLDOWN = 10
+
+# Rate limiting helper functions
+def check_rate_limit(last_interaction_time: float, cooldown: float = BUTTON_COOLDOWN) -> bool:
+    """Rate limiting шалгах функц"""
+    return time.time() - last_interaction_time >= cooldown
+
+async def handle_interaction_with_retry(interaction: discord.Interaction, func: Any, *args: Any, max_retries: int = 2) -> Any:
+    """Interaction-ийг rate limiting-тэй гүйцэтгэх функц"""
+    for attempt in range(max_retries + 1):
+        try:
+            return await func(*args)
+        except discord.errors.HTTPException as e:
+            if e.status == 429 and attempt < max_retries:  # Too Many Requests
+                wait_time = API_RETRY_DELAY * (attempt + 1)  # Exponential backoff
+                logger.warning(f"Rate limit алдаа, {wait_time}с хүлээж байна... (оролдлого {attempt + 1}/{max_retries + 1})")
+                await asyncio.sleep(wait_time)
+                continue
+            else:
+                raise e
 
 class GiftVIPDropdown(discord.ui.Select):
     def __init__(self, ctx: commands.Context, vip_cog: Any, target_user: discord.Member, vip_levels: Dict[str, Dict[str, Any]]):
@@ -69,12 +91,19 @@ class GiftVIPDropdown(discord.ui.Select):
         self.ctx = ctx
         self.vip_cog = vip_cog
         self.target_user = target_user
+        self._last_interaction_time = 0.0
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if interaction.user.id != self.ctx.author.id:
             await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
 
+        # Rate limiting шалгах
+        if not check_rate_limit(self._last_interaction_time):
+            await interaction.response.send_message("⏳ Хэт хурдан дарж байна! 2 секунд хүлээнэ үү.", ephemeral=True)
+            return
+        
+        self._last_interaction_time = time.time()
         await interaction.response.defer()
         level = self.values[0]
         await self.vip_cog.process_vip_purchase(interaction, interaction.user, level, True, self.target_user)
@@ -107,11 +136,19 @@ class VIPBuyButton(discord.ui.Button):
         self.level = level
         self.vip_cog = vip_cog
         self.original_user = original_user
+        self._last_interaction_time = 0.0
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if interaction.user.id != self.original_user.id:
             await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
+        
+        # Rate limiting шалгах
+        if not check_rate_limit(self._last_interaction_time):
+            await interaction.response.send_message("⏳ Хэт хурдан дарж байна! 2 секунд хүлээнэ үү.", ephemeral=True)
+            return
+        
+        self._last_interaction_time = time.time()
         await interaction.response.defer()
         await self.vip_cog.buy_vip(interaction, self.level, self.original_user)
 
@@ -122,34 +159,65 @@ class VIPDetailView(discord.ui.View):
         self.level = level
         self.original_embed = original_embed
         self.original_user = original_user
+        self._last_interaction_time = 0.0
 
     @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success, custom_id="confirm_purchase")
     async def confirm_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if interaction.user.id != self.original_user.id:
             await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
+            
+        # Rate limiting шалгах
+        if not check_rate_limit(self._last_interaction_time):
+            await interaction.response.send_message("⏳ Хэт хурдан дарж байна! 2 секунд хүлээнэ үү.", ephemeral=True)
+            return
+        
+        self._last_interaction_time = time.time()
         await interaction.response.defer()
         
         # Process VIP purchase
         await self.vip_cog.process_vip_purchase(interaction, interaction.user, self.level, False, None)
-          # Clear the active session after successful processing
+        # Clear the active session after successful processing
         self.vip_cog._active_sessions.discard(self.original_user.id)
+        self.vip_cog._session_timestamps.pop(self.original_user.id, None)
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="cancel_purchase")
     async def cancel_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if interaction.user.id != self.original_user.id:
             await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
+            
+        # Rate limiting шалгах
+        if not check_rate_limit(self._last_interaction_time):
+            await interaction.response.send_message("⏳ Хэт хурдан дарж байна! 2 секунд хүлээнэ үү.", ephemeral=True)
+            return
+        
+        self._last_interaction_time = time.time()
         await interaction.response.defer()
         
         # Clear the active session when cancelled
         self.vip_cog._active_sessions.discard(self.original_user.id)
+        self.vip_cog._session_timestamps.pop(self.original_user.id, None)
         
-        # Return to main VIP selection
+        # Return to main VIP selection with retry mechanism
         view = VIPButtons(self.vip_cog, self.original_user)
-        await interaction.edit_original_response(embed=self.original_embed, view=view)
+        
+        async def update_message():
+            await interaction.edit_original_response(embed=self.original_embed, view=view)
+        
+        try:
+            await handle_interaction_with_retry(interaction, update_message)
+        except Exception as e:
+            logger.error(f"VIP цэс буцаахад алдаа: {e}")
+            try:
+                await interaction.followup.send("⚠️ Цэс дахин нээхэд алдаа гарлаа!", ephemeral=True)
+            except Exception:
+                pass
 
     async def on_timeout(self) -> None:
+        # Clear the active session when view times out
+        self.vip_cog._active_sessions.discard(self.original_user.id)
+        self.vip_cog._session_timestamps.pop(self.original_user.id, None)
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
@@ -165,6 +233,7 @@ class VIPButtons(discord.ui.View):
     async def on_timeout(self) -> None:
         # Clear the active session when view times out
         self.vip_cog._active_sessions.discard(self.original_user.id)
+        self.vip_cog._session_timestamps.pop(self.original_user.id, None)
         for item in self.children:
             if isinstance(item, discord.ui.Button):
                 item.disabled = True
@@ -174,7 +243,24 @@ class VIP(commands.Cog):
         self.bot = bot
         self.vip_levels = VIP_LEVELS
         self._active_sessions = set()  # Track active VIP purchase sessions
+        self._session_timestamps = {}  # Track session start times for cleanup
         # Start the periodic task after database setup in on_ready
+
+    def _cleanup_old_sessions(self) -> None:
+        """Хуучин session-уудыг цэвэрлэх"""
+        current_time = time.time()
+        expired_sessions = []
+        
+        for user_id, timestamp in self._session_timestamps.items():
+            if current_time - timestamp > 300:  # 5 минутын дараа устгах
+                expired_sessions.append(user_id)
+        
+        for user_id in expired_sessions:
+            self._active_sessions.discard(user_id)
+            self._session_timestamps.pop(user_id, None)
+            
+        if expired_sessions:
+            logger.info(f"✅ {len(expired_sessions)} хуучин VIP session цэвэрлэлээ")
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -375,12 +461,16 @@ class VIP(commands.Cog):
     @commands.command(name="buyvip")
     async def buyvip(self, ctx: commands.Context) -> Optional[discord.Message]:
         """🎟 VIP эрх худалдан авах команд"""
+        # Cleanup old sessions first
+        self._cleanup_old_sessions()
+        
         # Check if user already has an active VIP purchase session
         if ctx.author.id in self._active_sessions:
             return await ctx.send("⚠️ Та аль хэдийн VIP худалдан авах цэсийг нээсэн байна!")
         
         # Add user to active sessions
         self._active_sessions.add(ctx.author.id)
+        self._session_timestamps[ctx.author.id] = time.time()
         
         try:
             # Create main VIP selection embed
@@ -408,6 +498,7 @@ class VIP(commands.Cog):
         except Exception as e:
             # Remove from active sessions on error
             self._active_sessions.discard(ctx.author.id)
+            self._session_timestamps.pop(ctx.author.id, None)
             logger.error(f"VIP худалдан авах командад алдаа: {e}")
             return await ctx.send("⚠️ VIP цэс нээхэд алдаа гарлаа!")
 
@@ -475,12 +566,16 @@ class VIP(commands.Cog):
         original_embed.set_footer(text="🎟 **VIP авахын тулд доорх товчийг дарна уу!**")
         # Create view with confirm/cancel buttons
         view = VIPDetailView(self, level, original_embed, original_user)
-        # Хариу аль хэдийн өгөгдсөн эсэхийг шалгаж, зөвхөн нэг удаа update хийх
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.edit_message(embed=embed, view=view)
-            else:
+        
+        # Advanced interaction response handling with retry mechanism
+        async def update_message():
+            if interaction.response.is_done():
                 await interaction.edit_original_response(embed=embed, view=view)
+            else:
+                await interaction.response.edit_message(embed=embed, view=view)
+        
+        try:
+            await handle_interaction_with_retry(interaction, update_message)
         except Exception as e:
             logger.error(f"VIP товч update-д алдаа: {e}")
             try:
@@ -655,6 +750,7 @@ class VIP(commands.Cog):
             # Clear active session on error
             if user:
                 self._active_sessions.discard(user.id)
+                self._session_timestamps.pop(user.id, None)
             await interaction.followup.send("⚠️ VIP авах үед алдаа гарлаа. Та дахин оролдоно уу!", ephemeral=True)
 
     @tasks.loop(hours=1)
