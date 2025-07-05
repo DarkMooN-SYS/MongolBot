@@ -13,6 +13,19 @@ from ..utils.channel import is_channel_enabled
 # Set up logging
 logger = logging.getLogger(__name__)
 
+def safe_parse_datetime(date_str: str) -> Optional[datetime]:
+    """Аюулгүй datetime хөрвүүлэх функц"""
+    if not date_str or date_str == '0' or date_str.lower() == 'null':
+        return None
+    
+    try:
+        # Remove microseconds if present
+        if "." in date_str:
+            date_str = date_str.split(".")[0]
+        return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return None
+
 # VIP түвшний тохиргоог JSON файлаас унших
 json_path = os.path.join(os.path.dirname(__file__), 'vip_levels.json')
 try:
@@ -227,7 +240,8 @@ class VIP(commands.Cog):
                 async with db.execute("SELECT vip_expiry FROM users1 WHERE user_id=?", (user_id,)) as cursor:
                     vip_status = await cursor.fetchone()
                     if vip_status and vip_status[0]:
-                        return datetime.strptime(vip_status[0], "%Y-%m-%d %H:%M:%S") > datetime.now()
+                        expiry_date = safe_parse_datetime(str(vip_status[0]))
+                        return expiry_date is not None and expiry_date > datetime.now()
                     return False
         except Exception:
             return False
@@ -290,7 +304,11 @@ class VIP(commands.Cog):
             return await ctx.send("⚠️ Та VIP эрхгүй байна. `mbuyvip` командаар VIP худалдан аваарай!")
 
         expiry_date, vip_level, vip_count, gifted_vip_count = data
-        if expiry_date and datetime.strptime(expiry_date.split(".")[0], "%Y-%m-%d %H:%M:%S") > datetime.now():
+        
+        # Safe datetime parsing
+        parsed_expiry = safe_parse_datetime(expiry_date) if expiry_date else None
+        
+        if parsed_expiry and parsed_expiry > datetime.now():
             embed = discord.Embed(title="💎 VIP мэдээлэл", color=discord.Color.gold())
             embed.set_author(name=ctx.author.display_name)
             avatar_url = self.get_user_avatar_url(ctx.author)
@@ -298,7 +316,7 @@ class VIP(commands.Cog):
                 embed.set_author(name=ctx.author.display_name, icon_url=avatar_url)
 
             embed.add_field(name="🏆 VIP түвшин", value=vip_level, inline=True)
-            embed.add_field(name="📅 VIP дуусах хугацаа", value=expiry_date[:10], inline=True)
+            embed.add_field(name="📅 VIP дуусах хугацаа", value=parsed_expiry.strftime("%Y-%m-%d"), inline=True)
             
             # VIP давуу талуудыг харуулах
             max_bet = await self.get_max_bet_for_user(ctx.author.id)
@@ -582,10 +600,7 @@ class VIP(commands.Cog):
                     row = await cursor.fetchone()
                     current_expiry = None
                     if row and row[0]:
-                        try:
-                            current_expiry = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-                        except ValueError:
-                            current_expiry = None
+                        current_expiry = safe_parse_datetime(str(row[0]))
 
                 # Шинэ хугацаа тооцох
                 now = datetime.now()
