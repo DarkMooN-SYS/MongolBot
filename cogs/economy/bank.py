@@ -43,7 +43,6 @@ class Bank(commands.Cog):
         self.savings_interest_rate = 0.02  # 14 хоног тутмын хадгаламжийн хүү (2%)
         self.loan_interest_rate = 0.05  # 7 хоног тутмын зээлийн хүү (5%)
     async def setup_database(self) -> None:
-        print("🏦 Bank систем setup эхлэж байна...")  # Print шууд console-д гарах
         logger.info("🏦 Bank систем setup эхлэж байна...")
         self.conn = await get_async_connection('economy')
         await self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -87,31 +86,24 @@ class Bank(commands.Cog):
 
         # --- loans хүснэгтэд perma_block багана байхгүй бол автоматаар нэмэх (минимал код) ---
         try:
-            print("🔍 loans хүснэгтийн perma_block баганыг шалгаж байна...")  # Print шууд console-д гарах
             logger.info("🔍 loans хүснэгтийн perma_block баганыг шалгаж байна...")
             # Хүснэгтийн бүтцийг шалгаж perma_block багана байхгүй бол нэмэх
             async with self.conn.execute("PRAGMA table_info(loans)") as cursor:
                 rows = await cursor.fetchall()
                 columns = [row[1] for row in rows]
-                print(f"📋 loans хүснэгтийн бүх багануud: {columns}")  # Print шууд console-д гарах
                 logger.info(f"📋 loans хүснэгтийн бүх багануud: {columns}")
                 
             if "perma_block" not in columns:
-                print("➕ perma_block багана байхгүй тул нэмэж байна...")  # Print шууд console-д гарах
                 logger.info("➕ perma_block багана байхгүй тул нэмэж байна...")
                 await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
                 await self.conn.commit()
-                print("✅ perma_block багана амжилттай нэмэгдлээ")  # Print шууд console-д гарах
                 logger.info("✅ perma_block багана амжилттай нэмэгдлээ")
             else:
-                print("ℹ️ perma_block багана аль хэдийн байна")  # Print шууд console-д гарах
                 logger.info("ℹ️ perma_block багана аль хэдийн байна")
                 
         except Exception as e:
-            print(f"❌ perma_block багана нэмэхэд алдаа: {e}")  # Print шууд console-д гарах
             logger.error(f"❌ perma_block багана нэмэхэд алдаа: {e}")
         
-        print("✅ Bank database setup бүрэн дууслаа")  # Print шууд console-д гарах
         logger.info("✅ Bank database setup бүрэн дууслаа")
 
     async def ensure_connection(self) -> None:
