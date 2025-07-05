@@ -1,4 +1,5 @@
 aiosqlite
+googletrans
 discord.py
 python-dotenv
 wavelink
