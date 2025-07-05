@@ -85,16 +85,52 @@ class Bank(commands.Cog):
 
         # --- loans хүснэгтэд perma_block багана байхгүй бол автоматаар нэмэх ---
         try:
+            # Эхлээд хүснэгтийн бүтцийг шалгах
             async with self.conn.execute("PRAGMA table_info(loans)") as cursor:
-                columns = [row[1] async for row in cursor]
+                rows = await cursor.fetchall()
+                columns = [row[1] for row in rows]
+                
+            # perma_block багана байхгүй бол нэмэх
             if "perma_block" not in columns:
-                await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
-                await self.conn.commit()
-                logger.info("✅ perma_block багана амжилттай нэмэгдлээ")
+                try:
+                    await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
+                    await self.conn.commit()
+                    logger.info("✅ perma_block багана амжилттай нэмэгдлээ")
+                    
+                    # Одоо байгаа бүх зээлийн бичлэгт perma_block = 0 гэж тохируулах
+                    await self.conn.execute("UPDATE loans SET perma_block = 0 WHERE perma_block IS NULL")
+                    await self.conn.commit()
+                    logger.info("✅ Одоо байгаа зээлийн бичлэгүүдэд perma_block утга тохируулагдлаа")
+                    
+                except Exception as alter_error:
+                    logger.error(f"❌ perma_block багана нэмэхэд алдаа: {alter_error}")
+                    # Хэрэв ALTER хүснэгт амжилтгүй бол бүх хүснэгтийг дахин үүсгэх
+                    await self.conn.execute("DROP TABLE IF EXISTS loans_backup")
+                    await self.conn.execute("""
+                        CREATE TABLE loans_backup AS SELECT * FROM loans
+                    """)
+                    await self.conn.execute("DROP TABLE loans")
+                    await self.conn.execute("""
+                        CREATE TABLE loans (
+                            user_id INTEGER PRIMARY KEY,
+                            balance INTEGER DEFAULT 0,
+                            zeel_date TEXT,
+                            due_date TEXT,
+                            perma_block INTEGER DEFAULT 0
+                        )
+                    """)
+                    await self.conn.execute("""
+                        INSERT INTO loans (user_id, balance, zeel_date, due_date, perma_block)
+                        SELECT user_id, balance, zeel_date, due_date, 0 FROM loans_backup
+                    """)
+                    await self.conn.execute("DROP TABLE loans_backup")
+                    await self.conn.commit()
+                    logger.info("✅ loans хүснэгт perma_block баганатай дахин үүсгэгдлээ")
             else:
                 logger.debug("ℹ️ perma_block багана аль хэдийн байна")
+                
         except Exception as e:
-            logger.warning(f"perma_block багана шалгахад алдаа: {e}")
+            logger.error(f"❌ perma_block багана шалгахад алдаа: {e}")
 
     async def ensure_connection(self) -> None:
         if self.conn is None:
