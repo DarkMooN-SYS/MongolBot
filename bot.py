@@ -3,7 +3,7 @@ from discord.ext import commands
 import asyncio
 import logging
 import traceback
-from typing import Optional
+from typing import Union, List, Optional
 import os
 from dotenv import load_dotenv
 from cogs.utils import settings
@@ -149,6 +149,14 @@ async def load_cogs_and_sync():
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} амжилттай холбогдлоо!")  # Console-д харуулах
+    
+    # Discord HTTP client rate limiting патч хийх
+    if patch_discord_http(bot):
+        print("✅ Discord HTTP rate limiting идэвхжүүлэгдлээ")
+    
+    # Auto-configure rate limiting
+    await auto_configure_rate_limiting()
+    
     # Persistent staff setup view бүртгэх - error handling нэмэх
     try:
         from cogs.admin.report import StaffSetupView
@@ -180,16 +188,34 @@ async def on_command_error(ctx: commands.Context, error: Exception):
         ctx (commands.Context): Команд контекст
         error (Exception): Гарсан алдаа
     """
-    # Rate limit handling нэмэх
+    # Rate limit handling шинэчилсэн
     if isinstance(error, discord.HTTPException) and error.status == 429:
         global last_rate_limit_time
         last_rate_limit_time = datetime.now()
-        rate_limit_message = "⚠️ Discord API rate limit. Хэсэг хугацаа хүлээж дахин оролдоно уу."
+        
+        # Response headers-ээс retry_after авах
+        retry_after = getattr(error.response, 'headers', {}).get('Retry-After', '60')
+        try:
+            retry_after_seconds = float(retry_after)
+        except (ValueError, TypeError):
+            retry_after_seconds = 60
+        
+        # Global rate limit эсэхийг шалгах
+        is_global = getattr(error.response, 'headers', {}).get('X-RateLimit-Global') == 'true'
+        
+        if is_global:
+            # Global rate limiter-д мэдэгдэх
+            set_global_limit(retry_after_seconds)
+            rate_limit_message = f"🔴 Global rate limit! {int(retry_after_seconds)} секунд хүлээнэ үү."
+            logger.error(f"Global rate limit: {retry_after_seconds}s")
+        else:
+            rate_limit_message = f"⚠️ Rate limit: {int(retry_after_seconds)} секунд хүлээж дахин оролдоно уу."
+            logger.warning(f"Route rate limit on {ctx.command}: {retry_after_seconds}s")
+        
         try:
             await ctx.send(rate_limit_message)
         except:
             logger.error("Rate limit message илгээж чадсангүй")
-        logger.warning(f"Rate limited in command {ctx.command}: {error}")
         return
     
     # Embed message бэлтгэх
@@ -494,6 +520,121 @@ async def rate_limit_status(ctx: commands.Context):
         )
     await ctx.send(embed=embed)
 
+# Rate limit statistics command нэмэх
+@bot.command(name="ratelimit_stats", aliases=["rlstats"])
+@commands.is_owner()
+async def rate_limit_statistics(ctx: commands.Context):
+    """Rate limit статистик харах (зөвхөн owner)"""
+    try:
+        from cogs.utils.rate_limiter import get_rate_limit_stats
+        stats = get_rate_limit_stats()
+        
+        embed = discord.Embed(title="🚦 Rate Limit Статистик", color=0x00ff00)
+        
+        # Үндсэн статистик
+        embed.add_field(
+            name="📊 Нийт мэдээлэл",
+            value=f"```\n"
+                  f"Нийт хүсэлт: {stats['total_requests']}\n"
+                  f"Блоклосон: {stats['total_blocked']}\n"
+                  f"Блок хувь: {stats['block_rate_percent']:.1f}%\n"
+                  f"Дундаж хүсэлт/сек: {stats['average_requests_per_second']:.1f}\n"
+                  f"```",
+            inline=False
+        )
+        
+        # Одоогийн төлөв
+        embed.add_field(
+            name="⚡ Одоогийн төлөв",
+            value=f"```\n"
+                  f"Одоогийн дараалал: {stats['current_queue_size']}\n"
+                  f"Хязгаар: {stats['requests_per_second_limit']}/сек\n"
+                  f"Global limit: {'✅ Тийм' if stats['is_globally_limited'] else '❌ Үгүй'}\n"
+                  f"Reset хүртэл: {stats['global_reset_in']:.1f}с\n"
+                  f"```",
+            inline=False
+        )
+        
+        # Сүүлийн endpoint-ууд
+        if stats['recent_endpoints']:
+            recent = "\n".join(stats['recent_endpoints'][-5:])  # Сүүлийн 5
+            embed.add_field(
+                name="🔄 Сүүлийн endpoint-ууд",
+                value=f"```\n{recent}\n```",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+        
+    except ImportError:
+        await ctx.send("❌ Rate limiter систем олдсонгүй")
+    except Exception as e:
+        await ctx.send(f"❌ Статистик авахад алдаа: {e}")
+
+# Rate limit monitoring харах команд
+@bot.command(name="rate_monitor", aliases=["rm"])
+@commands.is_owner()
+async def rate_limit_monitoring(ctx: commands.Context):
+    """Real-time rate limit мониторинг харах (зөвхөн owner)"""
+    try:
+        report = rate_limit_monitor.get_monitoring_report()
+        recent_incidents = rate_limit_monitor.get_recent_incidents(5)
+        
+        embed = discord.Embed(title="📡 Real-time Rate Limit Monitor", color=0xFF5722)
+        
+        # Нийт мэдээлэл
+        embed.add_field(
+            name="📊 Нийт мэдээлэл",
+            value=f"```\n"
+                  f"Нийт тохиолдол: {report['total_incidents']}\n"
+                  f"Мониторинг хугацаа: {report['monitoring_since'] or 'N/A'}\n"
+                  f"```",
+            inline=False
+        )
+        
+        # Сүүлийн хугацааны статистик
+        for period, data in report["periods"].items():
+            period_name = {"last_minute": "Сүүлийн минут", "last_5_minutes": "Сүүлийн 5 минут", "last_hour": "Сүүлийн цаг"}.get(period, period)
+            
+            embed.add_field(
+                name=f"⏰ {period_name}",
+                value=f"```\n"
+                      f"Тохиолдол: {data['count']}\n"
+                      f"Global: {data['global_count']}\n"
+                      f"Дундаж хүлээлт: {data['avg_retry_after']:.1f}с\n"
+                      f"```",
+                inline=True
+            )
+        
+        # Сүүлийн тохиолдлууд
+        if recent_incidents:
+            incidents_text = "\n".join([
+                f"{incident['method']} {incident['path'].split('/')[-1]} - {incident['retry_after']:.1f}с"
+                for incident in recent_incidents
+            ])
+            embed.add_field(
+                name="🚨 Сүүлийн 5 тохиолдол",
+                value=f"```\n{incidents_text}\n```",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Мониторинг мэдээлэл авахад алдаа: {e}")
+
+# Rate limit түүх цэвэрлэх команд
+@bot.command(name="clear_rate_history", aliases=["crh"])
+@commands.is_owner()
+async def clear_rate_limit_history(ctx: commands.Context):
+    """Rate limit monitoring түүхийг цэвэрлэх (зөвхөн owner)"""
+    try:
+        rate_limit_monitor.clear_history()
+        rate_limiter.reset_stats()
+        await ctx.send("✅ Rate limit түүх болон статистик цэвэрлэгдлээ")
+    except Exception as e:
+        await ctx.send(f"❌ Алдаа гарлаа: {e}")
+
 # --- Custom error handlers ---
 
 async def send_channel_permission_error(ctx: commands.Context):
@@ -506,6 +647,158 @@ async def send_channel_permission_error(ctx: commands.Context):
         await message.delete()
     except Exception:
         pass
+
+# Global rate limiting toggle команд
+@bot.command(name="toggle_rate_limit", aliases=["trl"])
+@commands.is_owner()
+async def toggle_global_rate_limiting(ctx: commands.Context, enable: Optional[bool] = None):
+    """Global rate limiting асааж/унтрааж (зөвхөн owner)"""
+    try:
+        from cogs.utils.rate_limiter import rate_limiter
+        
+        if enable is None:
+            # Одоогийн төлөвийг харах
+            stats = rate_limiter.get_stats()
+            current_status = "✅ Асаалттай" if rate_limiter.max_requests_per_second < 50 else "❌ Унтраалттай"
+            
+            embed = discord.Embed(title="🚦 Global Rate Limiting", color=0x00ff00)
+            embed.add_field(name="Одоогийн төлөв", value=current_status, inline=False)
+            embed.add_field(name="Хязгаар", value=f"{rate_limiter.max_requests_per_second}/секунд", inline=True)
+            embed.add_field(name="Нийт хүсэлт", value=f"{stats['total_requests']}", inline=True)
+            embed.add_field(name="Блоклосон", value=f"{stats['total_blocked']}", inline=True)
+            
+            await ctx.send(embed=embed)
+            return
+        
+        if enable:
+            # Rate limiting асаах
+            rate_limiter.max_requests_per_second = 45  # 50-ээс доош
+            await ctx.send("✅ Global rate limiting асаагдлаа (45 хүсэлт/секунд)")
+        else:
+            # Rate limiting унтраах  
+            rate_limiter.max_requests_per_second = 1000  # Их тоо (практикт унтраасан)
+            await ctx.send("❌ Global rate limiting унтраагдлаа")
+            
+    except ImportError:
+        await ctx.send("❌ Rate limiter систем олдсонгүй")
+    except Exception as e:
+        await ctx.send(f"❌ Алдаа гарлаа: {e}")
+
+# Rate limit reset команд  
+@bot.command(name="reset_rate_limit", aliases=["rrl"])
+@commands.is_owner()
+async def reset_rate_limiting(ctx: commands.Context):
+    """Rate limiting статистикийг reset хийх (зөвхөн owner)"""
+    try:
+        from cogs.utils.rate_limiter import rate_limiter
+        
+        # Статистикийг reset хийх
+        rate_limiter.reset_stats()
+        
+        # Global rate limit-ийг арилгах
+        rate_limiter.is_globally_limited = False
+        rate_limiter.global_reset_time = None
+        
+        global last_rate_limit_time
+        last_rate_limit_time = None
+        
+        await ctx.send("✅ Rate limiting систем reset хийгдлээ")
+        
+    except ImportError:
+        await ctx.send("❌ Rate limiter систем олдсонгүй")
+    except Exception as e:
+        await ctx.send(f"❌ Алдаа гарлаа: {e}")
+
+# Safe message deletion команд  
+@bot.command(name="clear_safe", aliases=["cs"])
+@commands.has_permissions(manage_messages=True)
+async def clear_messages_safe(ctx: commands.Context, amount: int = 10):
+    """Rate limit-тай аюулгүй message устгах (админ зориулалт)"""
+    if amount > 100:
+        await ctx.send("❌ Дээд талаар 100 мессеж устгаж болно.")
+        return
+    
+    try:
+        from cogs.utils.discord_integration import safe_message_delete
+        
+        # Мессежүүдийг авах
+        messages = []
+        async for message in ctx.channel.history(limit=amount + 1):  # +1 for command message
+            messages.append(message)
+        
+        deleted_count = 0
+        
+        # Rate limit-тай нэг бүрчлэн устгах
+        for message in messages:
+            try:
+                await safe_message_delete(message)
+                deleted_count += 1
+                
+                # Хооронд жижиг зай өгөх
+                await asyncio.sleep(0.5)
+                
+            except Exception as e:
+                logger.warning(f"Мессеж устгахад алдаа: {e}")
+                continue
+        
+        # Үр дүн мэдэгдэх (түр мессежээр)
+        result_msg = await ctx.send(f"✅ {deleted_count} мессеж rate limit-тай аюулгүй устгагдлаа")
+        await asyncio.sleep(3)
+        await safe_message_delete(result_msg)
+        
+    except ImportError:
+        await ctx.send("❌ Discord integration систем олдсонгүй")
+    except Exception as e:
+        await ctx.send(f"❌ Алдаа гарлаа: {e}")
+
+# Discord rate limit статус харах команд
+@bot.command(name="discord_status", aliases=["ds"])
+@commands.is_owner()
+async def discord_rate_limit_status(ctx: commands.Context):
+    """Discord API rate limit статус харах (зөвхөн owner)"""
+    try:
+        from cogs.utils.rate_limiter import get_rate_limit_stats
+        
+        stats = get_rate_limit_stats()
+        
+        embed = discord.Embed(title="🌐 Discord API Rate Limit Status", color=0x5865F2)
+        
+        # Discord API мэдээлэл
+        embed.add_field(
+            name="📡 Discord API",
+            value=f"```\n"
+                  f"Latency: {bot.latency*1000:.0f}ms\n"
+                  f"Guilds: {len(bot.guilds)}\n"
+                  f"Users: {len(bot.users)}\n"
+                  f"```",
+            inline=True
+        )
+        
+        # Rate limiting статистик
+        embed.add_field(
+            name="🚦 Rate Limiting",
+            value=f"```\n"
+                  f"Хязгаар: {rate_limiter.max_requests_per_second}/сек\n"
+                  f"Одоогийн: {stats['current_queue_size']}\n"
+                  f"Global limit: {'✅' if stats['is_globally_limited'] else '❌'}\n"
+                  f"```",
+            inline=True
+        )
+        
+        # Сүүлийн мэдээлэл
+        recent_endpoints = stats.get('recent_endpoints', [])
+        if recent_endpoints:
+            recent_text = '\n'.join(recent_endpoints[-5:])
+            embed.add_field(
+                name="🔄 Сүүлийн API хүсэлтүүд",
+                value=f"```\n{recent_text}\n```",
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as e:
+        await ctx.send(f"❌ Статистик авахад алдаа: {e}")
 
 # --- DM Relay (Direct DM chat) ---
 # Set the admin/owner user ID for DM relay
@@ -562,22 +855,67 @@ async def on_message(message: discord.Message):
         return
     await bot.process_commands(message)
 
-# Rate limit monitoring
+# Global rate limiter дуудах
+from cogs.utils.rate_limiter import rate_limiter, set_global_limit
+from cogs.utils.discord_integration import patch_discord_http, safe_message_delete
+from cogs.utils.rate_limit_monitor import rate_limit_monitor
+
+# Rate limiting дэмжих global variables
 last_rate_limit_time = None
 
+# Rate limit checking функц
 async def check_rate_limit_status():
-    """Rate limit статусыг шалгах"""
+    """Rate limit статус шалгах"""
     global last_rate_limit_time
     if last_rate_limit_time:
         time_since_limit = (datetime.now() - last_rate_limit_time).total_seconds() / 60
         if time_since_limit < RATE_LIMIT_RESET_TIME:
             remaining = RATE_LIMIT_RESET_TIME - time_since_limit
-            print(f"⚠️ Rate limit дээр байна. {remaining:.1f} минут үлдсэн.")
+            logger.warning(f"⚠️ Rate limit идэвхтэй. {remaining:.1f} минут үлдсэн")
             return False
         else:
-            print("✅ Rate limit арилсан.")
+            logger.info("✅ Rate limit арилсан")
             last_rate_limit_time = None
     return True
+
+# Auto-configure rate limiting on bot startup
+async def auto_configure_rate_limiting():
+    """Bot эхлэх үед rate limiting автоматаар тохируулах"""
+    try:
+        from cogs.utils.rate_limiter import rate_limiter
+        
+        # Server тоо болон хэрэглэгчдийн тооноос хамааруулж тохируулах
+        total_members = sum(guild.member_count or 0 for guild in bot.guilds)
+        guild_count = len(bot.guilds)
+        
+        # Автомат тохиргоо логик
+        if guild_count == 0:
+            # Серверт ороогүй бол conservative
+            rate_limit = 30
+        elif total_members > 50000:
+            # Том серверууд (50k+ хэрэглэгч)
+            rate_limit = 25
+        elif total_members > 10000:
+            # Дунд серверууд (10k+ хэрэглэгч)
+            rate_limit = 30
+        elif total_members > 1000:
+            # Жижиг серверууд (1k+ хэрэглэгч)
+            rate_limit = 35
+        else:
+            # Маш жижиг серверууд
+            rate_limit = 40
+        
+        # Rate limit тохируулах
+        rate_limiter.max_requests_per_second = rate_limit
+        
+        print(f"🚦 Rate Limiting автомат тохируулга:")
+        print(f"   📊 {guild_count} сервер, {total_members} хэрэглэгч")
+        print(f"   ⚙️ {rate_limit} хүсэлт/секунд тохируулагдлаа")
+        
+    except ImportError:
+        print("⚠️ Rate limiter систем олдсонгүй")
+    except Exception as e:
+        print(f"⚠️ Rate limiting тохиргоонд алдаа: {e}")
 
 # Run the bot with rate limit protection
 if TOKEN is None:

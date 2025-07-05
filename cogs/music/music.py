@@ -4,6 +4,7 @@ import wavelink
 from typing import TYPE_CHECKING, List
 from datetime import timedelta
 from ..utils.channel import is_channel_enabled
+from ..utils.rate_limit_decorators import rate_limit_command  # Rate limiting import
 
 if TYPE_CHECKING:
     from discord.ext.commands import Bot, Context
@@ -32,6 +33,7 @@ class Music(commands.Cog):
             raise commands.CheckFailure("Channel not enabled for commands.")
 
     @commands.command(name='play')
+    @rate_limit_command()  # Rate limiting нэмэх
     async def play(self, ctx: commands.Context, *, search: str):
         voice_state = getattr(ctx.author, 'voice', None)
         if not ctx.voice_client:

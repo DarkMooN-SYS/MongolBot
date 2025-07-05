@@ -6,6 +6,9 @@ from googletrans import Translator
 import re
 from typing import Callable
 
+# Rate limiting system import хийх
+from ..utils.rate_limit_decorators import rate_limit_command, RateLimitContext
+
 ALLOWED_GUILD_IDS = {1354106084037759007, 1297446169995251712}
 ANILIST_API_URL = "https://graphql.anilist.co"
 
@@ -30,6 +33,7 @@ class Anime(commands.Cog):
         return text.strip()
 
     @commands.command(name="search")
+    @rate_limit_command()  # Rate limiting нэмэх
     async def anime_or_character_search(self, ctx: Context, search_type: str, *, name: str):
         """
         Анимэ, дүр, эсвэл кино хайх (AniList API)
