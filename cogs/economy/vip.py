@@ -458,7 +458,7 @@ class VIP(commands.Cog):
         except Exception:
             return await ctx.send("⚠️ Системд алдаа гарлаа!")
         
-    @commands.command(name="buyvip")
+    @commands.command(name="buyvip!!!!")
     async def buyvip(self, ctx: commands.Context) -> Optional[discord.Message]:
         """🎟 VIP эрх худалдан авах команд"""
         # Cleanup old sessions first
