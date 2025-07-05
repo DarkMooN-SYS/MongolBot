@@ -13,6 +13,58 @@ from ..utils.channel import is_channel_enabled
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Rate limiting protection
+RATE_LIMIT_DELAY = 1.0  # 1 second delay between API calls
+_last_api_call = {}  # Track last API call times per user
+
+async def rate_limit_protection(user_id: int) -> None:
+    """Rate limiting protection for Discord API calls"""
+    current_time = asyncio.get_event_loop().time()
+    last_call = _last_api_call.get(user_id, 0)
+    
+    if current_time - last_call < RATE_LIMIT_DELAY:
+        await asyncio.sleep(RATE_LIMIT_DELAY - (current_time - last_call))
+    
+    _last_api_call[user_id] = asyncio.get_event_loop().time()
+
+async def safe_interaction_response(interaction: discord.Interaction, content: Optional[str] = None, embed: Optional[discord.Embed] = None, view: Optional[discord.ui.View] = None, ephemeral: bool = False) -> bool:
+    """Safely respond to interaction with proper error handling"""
+    try:
+        # Add rate limiting protection
+        await rate_limit_protection(interaction.user.id)
+        
+        if not interaction.response.is_done():
+            if embed and view:
+                await interaction.response.send_message(embed=embed, view=view, ephemeral=ephemeral)
+            elif embed:
+                await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            elif content:
+                await interaction.response.send_message(content, ephemeral=ephemeral)
+            else:
+                await interaction.response.defer()
+        else:
+            if embed and view:
+                await interaction.edit_original_response(embed=embed, view=view)
+            elif embed:
+                await interaction.edit_original_response(embed=embed)
+            elif content:
+                await interaction.edit_original_response(content=content)
+        return True
+    except discord.errors.HTTPException as e:
+        if e.status == 429:  # Rate limited
+            logger.warning(f"Rate limited - waiting before retry. User: {interaction.user.id}")
+            await asyncio.sleep(5)  # Wait 5 seconds on rate limit
+            return False
+        elif e.status == 404:  # Interaction not found (expired)
+            logger.warning(f"Interaction expired for user {interaction.user.id}")
+            return False
+        else:
+            logger.error(f"HTTP Exception in interaction response: {e}")
+            return False
+    except Exception as e:
+        logger.error(f"Unexpected error in interaction response: {e}")
+        return False
+
 def safe_parse_datetime(date_str: str) -> Optional[datetime]:
     """Аюулгүй datetime хөрвүүлэх функц"""
     if not date_str or date_str == '0' or date_str.lower() == 'null':
@@ -72,7 +124,7 @@ class GiftVIPDropdown(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if interaction.user.id != self.ctx.author.id:
-            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            await safe_interaction_response(interaction, content="⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
 
         await interaction.response.defer()
@@ -110,7 +162,7 @@ class VIPBuyButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if interaction.user.id != self.original_user.id:
-            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            await safe_interaction_response(interaction, content="⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
         await interaction.response.defer()
         await self.vip_cog.buy_vip(interaction, self.level, self.original_user)
@@ -126,7 +178,7 @@ class VIPDetailView(discord.ui.View):
     @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success, custom_id="confirm_purchase")
     async def confirm_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if interaction.user.id != self.original_user.id:
-            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            await safe_interaction_response(interaction, content="⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
         await interaction.response.defer()
         
@@ -138,7 +190,7 @@ class VIPDetailView(discord.ui.View):
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.secondary, custom_id="cancel_purchase")
     async def cancel_purchase(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         if interaction.user.id != self.original_user.id:
-            await interaction.response.send_message("⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
+            await safe_interaction_response(interaction, content="⚠️ Та энэ сонголтыг хийх эрхгүй!", ephemeral=True)
             return
         await interaction.response.defer()
         
@@ -147,7 +199,12 @@ class VIPDetailView(discord.ui.View):
         
         # Return to main VIP selection
         view = VIPButtons(self.vip_cog, self.original_user)
-        await interaction.edit_original_response(embed=self.original_embed, view=view)
+        success = await safe_interaction_response(interaction, embed=self.original_embed, view=view)
+        if not success:
+            try:
+                await interaction.edit_original_response(embed=self.original_embed, view=view)
+            except Exception as e:
+                logger.error(f"Failed to return to VIP selection: {e}")
 
     async def on_timeout(self) -> None:
         for item in self.children:
@@ -414,11 +471,12 @@ class VIP(commands.Cog):
     async def buy_vip(self, interaction: discord.Interaction, level: str, original_user: Union[discord.User, discord.Member]) -> None:
         """Display detailed information for a specific VIP level with confirm/cancel options"""
         if level not in self.vip_levels:
-            # Хариу аль хэдийн өгөгдсөн эсэхийг шалгах
-            if not interaction.response.is_done():
-                await interaction.response.send_message("❌ Хүсэлтэй VIP түвшин олдсонгүй!", ephemeral=True)
-            else:
-                await interaction.followup.send("❌ Хүсэлтэй VIP түвшин олдсонгүй!", ephemeral=True)
+            success = await safe_interaction_response(interaction, content="❌ Хүсэлтэй VIP түвшин олдсонгүй!", ephemeral=True)
+            if not success:
+                try:
+                    await interaction.followup.send("❌ Хүсэлтэй VIP түвшин олдсонгүй!", ephemeral=True)
+                except Exception as e:
+                    logger.error(f"Failed to send followup message: {e}")
             return
 
         vip_info = self.vip_levels[level]
@@ -475,18 +533,22 @@ class VIP(commands.Cog):
         original_embed.set_footer(text="🎟 **VIP авахын тулд доорх товчийг дарна уу!**")
         # Create view with confirm/cancel buttons
         view = VIPDetailView(self, level, original_embed, original_user)
-        # Хариу аль хэдийн өгөгдсөн эсэхийг шалгаж, зөвхөн нэг удаа update хийх
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.edit_message(embed=embed, view=view)
+        
+        # Try to update the interaction with rate limiting protection
+        max_retries = 3
+        for attempt in range(max_retries):
+            success = await safe_interaction_response(interaction, embed=embed, view=view)
+            if success:
+                break
+            elif attempt < max_retries - 1:
+                logger.warning(f"Retrying VIP detail update, attempt {attempt + 1}")
+                await asyncio.sleep(2)  # Wait before retry
             else:
-                await interaction.edit_original_response(embed=embed, view=view)
-        except Exception as e:
-            logger.error(f"VIP товч update-д алдаа: {e}")
-            try:
-                await interaction.followup.send("⚠️ VIP дэлгэрэнгүй мэдээлэл харуулахад алдаа гарлаа!", ephemeral=True)
-            except Exception:
-                pass
+                logger.error("Failed to update VIP details after all retries")
+                try:
+                    await interaction.followup.send("⚠️ VIP дэлгэрэнгүй мэдээлэл харуулахад алдаа гарлаа. Та дахин оролдоно уу!", ephemeral=True)
+                except Exception as e:
+                    logger.error(f"Failed to send error message: {e}")
 
     @commands.command(name="dailyvip")
     async def daily_vip_bonus(self, ctx: commands.Context) -> Optional[discord.Message]:
@@ -635,7 +697,14 @@ class VIP(commands.Cog):
                     color=discord.Color.green()
                 )
                 embed.add_field(name="📅 VIP дуусах хугацаа", value=new_expiry.strftime("%Y-%м-%d"), inline=False)
-                await interaction.followup.send(embed=embed)
+                
+                # Try to send with rate limiting protection
+                success = await safe_interaction_response(interaction, embed=embed)
+                if not success:
+                    try:
+                        await interaction.followup.send(embed=embed)
+                    except Exception as e:
+                        logger.error(f"Failed to send gift confirmation: {e}")
             else:
                 embed = discord.Embed(
                     title="✅ VIP эрх амжилттай авлаа!",
@@ -648,14 +717,28 @@ class VIP(commands.Cog):
                 embed.add_field(name="🏆 VIP түвшин", value=level, inline=True)
                 embed.add_field(name="💰 Төлсөн дүн", value=f"{price:,}₮", inline=True)
                 embed.set_footer(text="🎟 VIP мэдээлэл харах бол mvip командыг ашиглаарай!")
-                await interaction.followup.send(embed=embed)
+                
+                # Try to send with rate limiting protection
+                success = await safe_interaction_response(interaction, embed=embed)
+                if not success:
+                    try:
+                        await interaction.followup.send(embed=embed)
+                    except Exception as e:
+                        logger.error(f"Failed to send purchase confirmation: {e}")
 
         except Exception as e:
             logger.error(f"VIP худалдан авахад алдаа гарлаа: {e}")
             # Clear active session on error
             if user:
                 self._active_sessions.discard(user.id)
-            await interaction.followup.send("⚠️ VIP авах үед алдаа гарлаа. Та дахин оролдоно уу!", ephemeral=True)
+            
+            # Try to send error message with rate limiting protection
+            success = await safe_interaction_response(interaction, content="⚠️ VIP авах үед алдаа гарлаа. Та дахин оролдоно уу!", ephemeral=True)
+            if not success:
+                try:
+                    await interaction.followup.send("⚠️ VIP авах үед алдаа гарлаа. Та дахин оролдоно уу!", ephemeral=True)
+                except Exception as follow_error:
+                    logger.error(f"Failed to send error followup: {follow_error}")
 
     @tasks.loop(hours=1)
     async def remove_expired_vip(self) -> None:
