@@ -1,12 +1,11 @@
 import re
 import discord
 from discord.ext import commands, tasks
-import sqlite3
 import logging
-from discord.ext.commands.cooldowns import CooldownMapping, Cooldown, BucketType
 from datetime import datetime, timedelta
 from typing import Optional, Union, Any, List, Tuple, NoReturn
 from ..utils.database import get_async_connection
+from ..utils.rate_limit_decorators import rate_limit_command  # Rate limiting import
 import aiosqlite
 import os
 import asyncio
@@ -41,10 +40,8 @@ class Bank(commands.Cog):
         self.vip_cog = vip_cog
         self.conn: Optional[aiosqlite.Connection] = None
         self.bot.loop.create_task(self.setup_database())
-        self.cooldowns = {}
         self.savings_interest_rate = 0.02  # 14 хоног тутмын хадгаламжийн хүү (2%)
         self.loan_interest_rate = 0.05  # 7 хоног тутмын зээлийн хүү (5%)
-
     async def setup_database(self) -> None:
         self.conn = await get_async_connection('economy')
         await self.conn.execute("PRAGMA journal_mode=WAL;")
@@ -73,7 +70,8 @@ class Bank(commands.Cog):
                 user_id INTEGER PRIMARY KEY,
                 balance INTEGER DEFAULT 0,
                 zeel_date TEXT,
-                due_date TEXT
+                due_date TEXT,
+                perma_block INTEGER DEFAULT 0 -- Зээлийн эрхийг бүр мөсөн хаах тэмдэглэгээ
             )
         """)
         await self.conn.execute("""
@@ -85,6 +83,16 @@ class Bank(commands.Cog):
         await self.ensure_connection()
         await self.conn.commit()
 
+        # --- loans хүснэгтэд perma_block багана байхгүй бол автоматаар нэмэх ---
+        try:
+            async with self.conn.execute("PRAGMA table_info(loans)") as cursor:
+                columns = [row[1] async for row in cursor]
+            if "perma_block" not in columns:
+                await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
+                await self.conn.commit()
+        except Exception as e:
+            logger.warning(f"perma_block багана нэмэхэд алдаа: {e}")
+
     async def ensure_connection(self) -> None:
         if self.conn is None:
             await self.setup_database()
@@ -92,41 +100,36 @@ class Bank(commands.Cog):
             raise RuntimeError("Database connection is not established!")
 
     async def get_balance(self, user_id: int, table_name: str) -> int:
-        await self.ensure_connection()
-        if self.conn is None:
-            raise RuntimeError("Database connection is not established!")
-        async with self.conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
-            result = await cursor.fetchone()
-            return int(result[0]) if result and result[0] is not None else 0
+        async with aiosqlite.connect('data/economy.db') as conn:
+            async with conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
+                result = await cursor.fetchone()
+                return int(result[0]) if result and result[0] is not None else 0
 
     async def update_balance(self, table_name: str, user_id: int, amount: int, date_column: Optional[str] = None, due_date: Optional[str] = None):
-        await self.ensure_connection()
-        if self.conn is None:
-            raise RuntimeError("Database connection is not established!")
-        current_balance = await self.get_balance(user_id, table_name)
-        new_balance = current_balance + amount
-        if new_balance < 0:
-            return current_balance
-        if date_column:
-            await self.conn.execute(f"""
-                INSERT INTO {table_name} (user_id, balance, {date_column}, due_date)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET balance = ?, {date_column} = ?, due_date = COALESCE(?, due_date)
-            """, (user_id, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date))
-        else:
-            await self.conn.execute(f"""
-                INSERT INTO {table_name} (user_id, balance)
-                VALUES (?, ?)
-                ON CONFLICT(user_id) DO UPDATE SET balance = ?
-            """, (user_id, new_balance, new_balance))
-        await self.conn.commit()
-        return new_balance
-
-    async def get_command_cooldown(self, user_id: int):
-        # Check if vip_cog exists and has the required method, otherwise return a default cooldown (e.g., 10 seconds)
-        if self.vip_cog and hasattr(self.vip_cog, "get_cooldown_for_user"):
-            return await self.vip_cog.get_cooldown_for_user(user_id)
-        return 10  # Default cooldown in seconds if VIP cog or method is not available
+        async with aiosqlite.connect('data/economy.db') as conn:
+            # Get current balance within the same connection
+            async with conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
+                result = await cursor.fetchone()
+                current_balance = int(result[0]) if result and result[0] is not None else 0
+            
+            new_balance = current_balance + amount
+            if new_balance < 0:
+                return current_balance
+            
+            if date_column:
+                await conn.execute(f'''
+                    INSERT INTO {table_name} (user_id, balance, {date_column}, due_date)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET balance = ?, {date_column} = ?, due_date = COALESCE(?, due_date)
+                ''', (user_id, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date))
+            else:
+                await conn.execute(f'''
+                    INSERT INTO {table_name} (user_id, balance)
+                    VALUES (?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET balance = ?
+                ''', (user_id, new_balance, new_balance))
+            await conn.commit()
+            return new_balance
 
     async def get_max_loan_for_user(self, user_id: int) -> int:
         """VIP хэрэглэгчийн зээлийн дээд хэмжээг авах"""
@@ -140,68 +143,7 @@ class Bank(commands.Cog):
             return await self.vip_cog.get_loan_interest_rate_for_user(user_id)
         return 0.05  # Default interest rate 5%
 
-    async def get_cooldown(self, command_name: str, user_id: int):
-        base_cooldown = await self.get_command_cooldown(user_id)
 
-        if command_name not in self.cooldowns:
-            self.cooldowns[command_name] = CooldownMapping(Cooldown(1, base_cooldown), BucketType.user)
-        else:
-            self.cooldowns[command_name]._cooldown = Cooldown(1, base_cooldown)
-
-        return self.cooldowns[command_name]
-
-    async def check_cooldown(self, ctx: commands.Context, command_name: str):
-        cooldown = await self.get_cooldown(command_name, ctx.author.id)
-        bucket = cooldown.get_bucket(ctx.message)
-        retry_after = bucket.update_rate_limit()
-
-        if retry_after:
-            cooldown_time = int(retry_after)
-            total_time = cooldown_time
-            # If cooldown is 1 second or less, just show a simple message and return
-            if cooldown_time <= 1:
-                await ctx.send("⏳ Та 1 секунд хүлээнэ үү!")
-                return False
-            error_embed = discord.Embed(color=discord.Color.red())
-            error_embed.set_author(name="⏳ Түр хүлээнэ үү")
-            if cooldown_time > 60:
-                time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
-            else:
-                time_text = f"{cooldown_time} секунд"
-            error_embed.description = f"⏳ Та {int(retry_after)} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\nДахин ашиглахын тулд `{time_text}` хүлээнэ үү!"
-            try:
-                message = await ctx.send(embed=error_embed)
-                while cooldown_time > 0:
-                    await asyncio.sleep(1)
-                    cooldown_time -= 1
-                    progress_blocks = 10
-                    percent = (total_time - cooldown_time) / total_time if total_time > 0 else 1
-                    filled_blocks = int(progress_blocks * percent)
-                    bar = "🟩" * filled_blocks + "⬜" * (progress_blocks - filled_blocks)
-                    if cooldown_time > 60:
-                        time_text = f"{cooldown_time//60} минут {cooldown_time%60} секунд"
-                    else:
-                        time_text = f"{cooldown_time} секунд"
-                    error_embed.description = (
-                        f"⏳ Та {int(retry_after)} секунд тутамд нэг удаа энэ командыг ашиглах боломжтой!\n\n"
-                        f"Дахин ашиглахын тулд `{time_text}` хүлээнэ үү!\n"
-                        f"{bar}"
-                    )
-                    try:
-                        await message.edit(embed=error_embed)
-                    except (discord.NotFound, discord.HTTPException, RuntimeError):
-                        break
-                try:
-                    error_embed.color = discord.Color.green()
-                    error_embed.set_author(name="✅ Команд бэлэн боллоо")
-                    error_embed.description = "Одоо энэ командыг дахин ашиглаж болно!"
-                    await message.edit(embed=error_embed)
-                except (discord.NotFound, discord.HTTPException, RuntimeError):
-                    pass
-            except (discord.Forbidden, RuntimeError, discord.ConnectionClosed, discord.HTTPException):
-                pass
-            return False
-        return True
 
     def number(self, number_str: str) -> Union[int, str]:
         if not isinstance(number_str, str):
@@ -242,6 +184,8 @@ class Bank(commands.Cog):
 
     # Bank Commands
     @commands.command(name="bank")
+    @commands.cooldown(1, 10, commands.BucketType.user)
+    @rate_limit_command()  # Global rate limiting нэмэх
     async def bank(self, ctx: commands.Context, user: Optional[discord.Member] = None) -> None:
         """Хэрэглэгчийн банкны мэдээллийг харуулах
         
@@ -249,8 +193,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             user (Optional[discord.Member]): Мэдээлэл харах хэрэглэгч
         """
-        if not await self.check_cooldown(ctx, 'bank'):
-            return
 
         # Хэрэглэгчийг тодорхойлох
         target_user = user if user else ctx.author
@@ -281,12 +223,14 @@ class Bank(commands.Cog):
             value=f"```py\n{bank_balance:,} ₮```",
             inline=False
         )        # Хадгаламж ба зээлийн мэдээлэл
-        # VIP түвшин шалгах
+        # VIP түвшин шалгах (хүчинтэй VIP эрх байгаа эсэхийг)
         vip_status = ""
-        if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
-            vip_level = await self.vip_cog.get_vip_level(target_user.id)
-            if vip_level:
-                vip_status = f"\n🎭 VIP {vip_level} эрх"
+        if self.vip_cog and hasattr(self.vip_cog, "check_vip"):
+            is_vip_active = await self.vip_cog.check_vip(target_user.id)
+            if is_vip_active:
+                vip_level = await self.vip_cog.get_vip_level(target_user.id)
+                if vip_level:
+                    vip_status = f"\n🎭 VIP {vip_level} эрх"
         
         financial_status = (
             f"📈 Хадгаламж: {savings_balance:,} ₮\n"
@@ -325,19 +269,46 @@ class Bank(commands.Cog):
         max_loan = await self.get_max_loan_for_user(target_user.id)
         interest_rate = await self.get_loan_interest_rate_for_user(target_user.id)
         
-        # VIP түвшин шалгах
+        # VIP түвшин шалгах (хүчинтэй VIP эрх байгаа эсэхийг)
         vip_info = ""
-        if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
-            vip_level = await self.vip_cog.get_vip_level(target_user.id)
-            if vip_level:
-                vip_info = f" (VIP {vip_level})"
-        
+        if self.vip_cog and hasattr(self.vip_cog, "check_vip"):
+            is_vip_active = await self.vip_cog.check_vip(target_user.id)
+            if is_vip_active:
+                vip_level = await self.vip_cog.get_vip_level(target_user.id)
+                if vip_level:
+                    vip_info = f" (VIP {vip_level})"
+
+        # --- NEW: Check overdue loan for current user ---
+        overdue_loan_block = False
+        overdue_loan_msg = ""
+        if target_user.id == ctx.author.id:
+            await self.ensure_connection()
+            if self.conn is not None:
+                async with self.conn.execute("SELECT due_date, balance, perma_block FROM loans WHERE user_id=?", (target_user.id,)) as cursor:
+                    row = await cursor.fetchone()
+                    if row and row[0]:
+                        try:
+                            due_date = datetime.strptime(row[0], "%Y-%m-%d")
+                            loan_balance = row[1] if row[1] is not None else 0
+                            perma_block = row[2] if len(row) > 2 else 0
+                            if perma_block == 1:
+                                overdue_loan_block = True
+                                overdue_loan_msg = "\n❌ Та өмнө нь зээлийн хугацаа хэтрүүлсэн тул дахин зээл авах боломжгүй! Админтай холбогдоно уу."
+                            elif due_date < datetime.now() and loan_balance > 0:
+                                overdue_loan_block = True
+                                overdue_loan_msg = "\n❌ Та өмнөх зээлийн хугацаандаа төлөөгүй тул дахин зээл авах боломжгүй! Эхлээд зээлээ бүрэн төлнө үү."
+                        except Exception:
+                            pass
+        # --- END NEW ---
+
         loan_info = (
             f"💸 **Зээл авах**: `mloan <дүн>`\n"
             f"💳 **Төлөх**: `mpayloan <дүн>`\n"
             f"💰 **Дээд хэмжээ**: {max_loan:,}₮{vip_info}\n"
             f"📊 **Хүү**: 7 хоног тутамд {interest_rate*100:.1f}%"
         )
+        if overdue_loan_block:
+            loan_info += overdue_loan_msg
         embed.add_field(
             name="💳 Зээлийн үйлчилгээ",
             value=loan_info,
@@ -358,6 +329,7 @@ class Bank(commands.Cog):
         await ctx.send(embed=embed)
 
     @commands.command(name='deposit', aliases=['dep'])
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def deposit(self, ctx: commands.Context, amount: str) -> None:
         """Дансанд мөнгө хийх
         
@@ -365,8 +337,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             amount (str): Хийх мөнгөний хэмжээ
         """
-        if not await self.check_cooldown(ctx, 'deposit'):
-            return
 
         converted_amount = self.number(amount)
         if isinstance(converted_amount, str):
@@ -395,6 +365,7 @@ class Bank(commands.Cog):
             await ctx.send("⚠️ Банкны системд алдаа гарлаа.")
 
     @commands.command(name='withdraw', aliases=['wit'])
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def withdraw(self, ctx: commands.Context, amount: str) -> None:
         """Данснаас мөнгө авах
         
@@ -402,8 +373,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             amount (str): Авах мөнгөний хэмжээ
         """
-        if not await self.check_cooldown(ctx, 'withdraw'):
-            return
 
         converted_amount = self.number(amount)
         if isinstance(converted_amount, str):
@@ -432,6 +401,7 @@ class Bank(commands.Cog):
             await ctx.send("⚠️ Системд алдаа гарлаа.")
 
     @commands.command(name="save")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def save(self, ctx: commands.Context, amount: str) -> Optional[NoReturn]:
         """Хадгаламжинд мөнгө хийх
         
@@ -439,8 +409,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             amount (str): Хийх мөнгөний хэмжээ
         """
-        if not await self.check_cooldown(ctx, 'save'):
-            return None
 
         converted_amount = self.number(amount)
         if isinstance(converted_amount, str):
@@ -467,6 +435,7 @@ class Bank(commands.Cog):
             return None
 
     @commands.command(name='witsave', aliases=['ws'])
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def withdrawsave(self, ctx: commands.Context, amount: str) -> None:
         """Хадгаламжаас мөнгө авах
         
@@ -474,8 +443,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             amount (str): Авах мөнгөний хэмжээ
         """
-        if not await self.check_cooldown(ctx, 'withdrawsave'):
-            return
 
         converted_amount = self.number(amount)
         if isinstance(converted_amount, str):
@@ -496,6 +463,7 @@ class Bank(commands.Cog):
         await ctx.send(f"✅ **{converted_amount:,}₮** хадгаламжаас татлаа!")
 
     @commands.command(name="loan")
+    @commands.cooldown(1, 30, commands.BucketType.user)
     async def loan(self, ctx: commands.Context, amount: str) -> None:
         """Зээл авах
         
@@ -503,8 +471,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             amount (str): Зээлийн хэмжээ
         """
-        if not await self.check_cooldown(ctx, 'loan'):
-            return
 
         converted_amount = self.number(amount)
         if isinstance(converted_amount, str):
@@ -518,14 +484,48 @@ class Bank(commands.Cog):
         current_loan = await self.get_balance(ctx.author.id, "loans")
         max_loan = await self.get_max_loan_for_user(ctx.author.id)  # Get max loan for user
 
+        # --- STRICT: Check if user has overdue loan or perma_block ---
+        await self.ensure_connection()
+        if self.conn is None:
+            await ctx.send("⚠️ Мэдээллийн сантай холбогдож чадсангүй. Дахин оролдоно уу.")
+            return
+        async with self.conn.execute("SELECT due_date, balance, perma_block FROM loans WHERE user_id=?", (ctx.author.id,)) as cursor:
+            row = await cursor.fetchone()
+            if row and row[0]:
+                try:
+                    # --- Тайлбар: due_date-г datetime болгож хөрвүүлнэ ---
+                    due_date = datetime.strptime(row[0], "%Y-%m-%d")
+                    loan_balance = row[1] if row[1] is not None else 0
+                    perma_block = row[2] if len(row) > 2 else 0
+                    # --- Тайлбар: Хэрвээ өмнө нь perma_block тавигдсан бол шууд хориглоно ---
+                    if perma_block == 1:
+                        await ctx.send("❌ Та өмнө нь зээлийн хугацаа хэтрүүлсэн тул дахин зээл авах боломжгүй! Админтай холбогдоно уу.")
+                        return
+                    # --- Тайлбар: Хэрвээ due_date өнөөдрөөс өмнө бол зээл авах боломжгүй ---
+                    if due_date < datetime.now() and loan_balance > 0:
+                        await ctx.send("❌ Таны өмнөх зээлийн хугацаа хэтэрсэн тул дахин зээл авах боломжгүй! Эхлээд өмнөх зээлээ төлнө үү эсвэл админтай холбогдоно уу.")
+                        return
+                except Exception:
+                    pass
+        # --- END STRICT ---
+
         if current_loan + converted_amount > max_loan:
-            # VIP түвшинг харуулах
+            # VIP түвшинг харуулах (хүчинтэй VIP эрх байгаа эсэхийг)
             vip_info = ""
-            if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
-                vip_level = await self.vip_cog.get_vip_level(ctx.author.id)
-                if vip_level:
-                    vip_info = f" (VIP {vip_level} эрх)"
+            if self.vip_cog and hasattr(self.vip_cog, "check_vip"):
+                is_vip_active = await self.vip_cog.check_vip(ctx.author.id)
+                if is_vip_active:
+                    vip_level = await self.vip_cog.get_vip_level(ctx.author.id)
+                    if vip_level:
+                        vip_info = f" (VIP {vip_level} эрх)"
             await ctx.send(f"⚠️ Хамгийн ихдээ {max_loan:,}₮ зээл авах боломжтой{vip_info}!")
+            return
+
+        # --- Хадгаламжийн шалгуур: Зээл авахын тулд зээлийн 10%-тай тэнцэх хадгаламжтай байх ---
+        savings_balance = await self.get_balance(ctx.author.id, "savings")
+        required_savings = int(converted_amount * 0.10)
+        if savings_balance < required_savings:
+            await ctx.send(f"❌ Та {converted_amount:,}₮ зээл авахын тулд дор хаяж {required_savings:,}₮ хадгаламжид байршуулах шаардлагатай!")
             return
 
         due_date = (datetime.now() + timedelta(days=30)).strftime("%Y-%m-%d")
@@ -533,16 +533,19 @@ class Bank(commands.Cog):
         await self.update_balance("bank", ctx.author.id, converted_amount)
         await self.update_balance("loans", ctx.author.id, converted_amount, "zeel_date", due_date)
         
-        # VIP түвшин болон тусгай хүүгийн мэдээлэл харуулах
+        # VIP түвшин болон тусгай хүүгийн мэдээлэл харуулах (хүчинтэй VIP эрх байгаа эсэхийг)
         vip_message = ""
-        if self.vip_cog and hasattr(self.vip_cog, "get_vip_level"):
-            vip_level = await self.vip_cog.get_vip_level(ctx.author.id)
-            if vip_level:
-                vip_message = f"\n🎭 VIP {vip_level} эрхээр {interest_rate*100:.1f}% хүүтэй!"
+        if self.vip_cog and hasattr(self.vip_cog, "check_vip"):
+            is_vip_active = await self.vip_cog.check_vip(ctx.author.id)
+            if is_vip_active:
+                vip_level = await self.vip_cog.get_vip_level(ctx.author.id)
+                if vip_level:
+                    vip_message = f"\n🎭 VIP {vip_level} эрхээр {interest_rate*100:.1f}% хүүтэй!"
         
         await ctx.send(f"✅ **{converted_amount:,}₮** зээл авлаа! Төлөх хугацаа: {due_date}{vip_message}")
 
     @commands.command(name="payloan")
+    @commands.cooldown(1, 5, commands.BucketType.user)
     async def payloan(self, ctx: commands.Context, amount: str) -> None:
         """Зээл төлөх
         
@@ -550,8 +553,6 @@ class Bank(commands.Cog):
             ctx (commands.Context): Команд контекст
             amount (str): Төлөх мөнгөний хэмжээ
         """
-        if not await self.check_cooldown(ctx, 'payloan'):
-            return
 
         converted_amount = self.number(amount)
         if isinstance(converted_amount, str):
@@ -586,6 +587,10 @@ class Bank(commands.Cog):
             pass
         try:
             self.process_savings_interest.cancel()
+        except Exception:
+            pass
+        try:
+            self.process_overdue_loans.cancel()
         except Exception:
             pass
         # Дараа нь холболтыг хаана
@@ -666,6 +671,118 @@ class Bank(commands.Cog):
         await self.conn.commit()
         logger.info("✅ Хадгаламжийн хүү тооцооллоо!")
 
+    @tasks.loop(hours=1)
+    async def process_overdue_loans(self) -> None:
+        """Зээлийн хугацаа хэтэрсэн хэрэглэгчдийг 1 цаг тутамд автоматаар шалгаж, мөнгийг суутгана."""
+        try:
+            async with aiosqlite.connect('data/economy.db') as conn:
+                async with conn.execute("SELECT user_id, due_date, balance, perma_block FROM loans WHERE balance > 0 AND due_date IS NOT NULL") as cursor:
+                    rows = await cursor.fetchall()
+                for row in rows:
+                    user_id, due_date_str, loan_balance, perma_block = row
+                    if perma_block == 1:
+                        continue
+                    try:
+                        due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
+                    except Exception:
+                        continue
+                    if due_date < datetime.now():
+                        # --- Банк, халаас, хадгаламжийн одоогийн үлдэгдлийг авах ---
+                        bank_balance = 0
+                        economy_balance = 0
+                        savings_balance = 0
+                        async with conn.execute("SELECT balance FROM bank WHERE user_id=?", (user_id,)) as c:
+                            r = await c.fetchone()
+                            if r and r[0] is not None:
+                                bank_balance = int(r[0])
+                        async with conn.execute("SELECT balance FROM economy WHERE user_id=?", (user_id,)) as c:
+                            r = await c.fetchone()
+                            if r and r[0] is not None:
+                                economy_balance = int(r[0])
+                        async with conn.execute("SELECT balance FROM savings WHERE user_id=?", (user_id,)) as c:
+                            r = await c.fetchone()
+                            if r and r[0] is not None:
+                                savings_balance = int(r[0])
+                        
+                        # --- Зөвхөн эерэг үлдэгдэлтэй данснаас суутгах ---
+                        remaining_loan = loan_balance
+                        deduct_from_bank = 0
+                        deduct_from_economy = 0
+                        deduct_from_savings = 0
+                        
+                        # Эхлээд банкнаас суутгах
+                        if bank_balance > 0 and remaining_loan > 0:
+                            deduct_from_bank = min(bank_balance, remaining_loan)
+                            remaining_loan -= deduct_from_bank
+                        
+                        # Дараа нь халааснаас суутгах
+                        if economy_balance > 0 and remaining_loan > 0:
+                            deduct_from_economy = min(economy_balance, remaining_loan)
+                            remaining_loan -= deduct_from_economy
+                        
+                        # Эцэст хадгаламжаас суутгах
+                        if savings_balance > 0 and remaining_loan > 0:
+                            deduct_from_savings = min(savings_balance, remaining_loan)
+                            remaining_loan -= deduct_from_savings
+                        
+                        # Нийт суутгасан дүн
+                        deducted = deduct_from_bank + deduct_from_economy + deduct_from_savings
+                        # update_balance-ийг дуудахын оронд шууд UPDATE хийнэ
+                        if deduct_from_bank > 0:
+                            await conn.execute("UPDATE bank SET balance = balance - ? WHERE user_id = ?", (deduct_from_bank, user_id))
+                        if deduct_from_economy > 0:
+                            await conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (deduct_from_economy, user_id))
+                        if deduct_from_savings > 0:
+                            await conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (deduct_from_savings, user_id))
+                        if deducted > 0:
+                            await conn.execute("UPDATE loans SET balance = balance - ? WHERE user_id = ?", (deducted, user_id))
+                        # --- Одоо perma_block-г 1 болгож тэмдэглэнэ ---
+                        await conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
+                        await conn.commit()
+                        
+                        # --- Хэрэглэгчдэд DM мэдэгдэл илгээх ---
+                        try:
+                            user = self.bot.get_user(user_id)
+                            if user:
+                                embed = discord.Embed(
+                                    title="🚨 Зээлийн төлбөр автоматаар суутгалаа",
+                                    description="Таны зээлийн хугацаа хэтэрсэн тул автоматаар мөнгө суутгалаа.",
+                                    color=0xe74c3c  # Улаан өнгө
+                                )
+                                embed.add_field(
+                                    name="💰 Суутгасан дүн",
+                                    value=f"{deducted:,}₮",
+                                    inline=True
+                                )
+                                embed.add_field(
+                                    name="📅 Огноо",
+                                    value=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    inline=True
+                                )
+                                embed.add_field(
+                                    name="📊 Суутгасан эх үүсвэр",
+                                    value=(
+                                        f"🏦 Банк: {deduct_from_bank:,}₮\n"
+                                        f"💰 Халаас: {deduct_from_economy:,}₮\n"
+                                        f"💎 Хадгаламж: {deduct_from_savings:,}₮"
+                                    ),
+                                    inline=False
+                                )
+                                embed.add_field(
+                                    name="⚠️ Анхааруулга",
+                                    value="Та дахин зээл авах боломжгүй болсон. Админтай холбогдоно уу.",
+                                    inline=False
+                                )
+                                embed.set_footer(text="MongolBot Banking System")
+                                await user.send(embed=embed)
+                                logger.info(f"✅ User {user_id}-д зээлийн суутгалын мэдэгдэл илгээлээ")
+                        except Exception as dm_error:
+                            logger.warning(f"⚠️ User {user_id}-д DM илгээж чадсангүй: {dm_error}")
+        except Exception as e:
+            logger.error(f"process_overdue_loans алдаа: {e}")
+
+    # --- END: process_overdue_loans ---
+
     async def start_interest_loops(self) -> None:
         await self.ensure_connection()
         if not self.conn:
@@ -679,6 +796,117 @@ class Bank(commands.Cog):
         if last_savings_interest and (today - last_savings_interest).days >= 14:
             await self.process_savings_interest()
         self.process_savings_interest.start()
+        # --- Шинэ: хугацаа хэтэрсэн зээлийг автоматаар шалгах loop ---
+        self.process_overdue_loans.start()
+
+    @commands.command(name="unloan", aliases=['unblock_loan'])
+    @commands.is_owner()
+    @commands.cooldown(1, 5, commands.BucketType.user)
+    async def unblock_loan(self, ctx: commands.Context, user: discord.Member) -> None:
+        """Owner команд: Хэрэглэгчийн зээлийн perma_block-г арилгах
+
+        Args:
+            ctx (commands.Context): Команд контекст
+            user (discord.Member): Блок арилгах хэрэглэгч
+        """
+
+        await self.ensure_connection()
+        if self.conn is None:
+            await ctx.send("⚠️ Мэдээллийн сантай холбогдож чадсангүй. Дахин оролдоно уу.")
+            return
+
+        try:
+            # Хэрэглэгчийн одоогийн зээлийн мэдээллийг шалгах
+            async with self.conn.execute("SELECT balance, perma_block FROM loans WHERE user_id=?", (user.id,)) as cursor:
+                row = await cursor.fetchone()
+                
+                if not row:
+                    await ctx.send(f"❌ {user.display_name}-д зээлийн бичлэг байхгүй байна.")
+                    return
+                
+                loan_balance, perma_block = row
+                
+                if perma_block != 1:
+                    await ctx.send(f"ℹ️ {user.display_name}-д perma_block байхгүй байна.")
+                    return
+                
+                # Perma_block-г арилгах
+                await self.conn.execute("UPDATE loans SET perma_block=0 WHERE user_id=?", (user.id,))
+                await self.conn.commit()
+                
+                # Амжилттай мэдээлэл
+                embed = discord.Embed(
+                    title="✅ Зээлийн эрх сэргээгдлээ",
+                    description=f"{user.display_name}-ийн зээлийн эрх амжилттай сэргээгдлээ.",
+                    color=0x2ecc71
+                )
+                embed.add_field(
+                    name="👤 Хэрэглэгч",
+                    value=user.mention,
+                    inline=True
+                )
+                embed.add_field(
+                    name="💰 Одоогийн зээлийн үлдэгдэл",
+                    value=f"{loan_balance:,}₮",
+                    inline=True
+                )
+                embed.add_field(
+                    name="🔓 Статус",
+                    value="Зээл авах боломжтой",
+                    inline=True
+                )
+                embed.add_field(
+                    name="👑 Owner",
+                    value=ctx.author.mention,
+                    inline=True
+                )
+                embed.add_field(
+                    name="📅 Огноо",
+                    value=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    inline=True
+                )
+                embed.set_footer(text="MongolBot Banking System")
+                await ctx.send(embed=embed)
+                
+                # Хэрэглэгчдэд DM мэдэгдэл илгээх
+                try:
+                    user_dm_embed = discord.Embed(
+                        title="🎉 Зээлийн эрх сэргээгдлээ!",
+                        description="Таны зээлийн эрх owner-оор сэргээгдлээ.",
+                        color=0x2ecc71
+                    )
+                    user_dm_embed.add_field(
+                        name="✅ Мэдээлэл",
+                        value="Та одоо дахин зээл авах боломжтой боллоо!",
+                        inline=False
+                    )
+                    if loan_balance > 0:
+                        user_dm_embed.add_field(
+                            name="💰 Анхааруулга",
+                            value=f"Таны одоогийн зээлийн үлдэгдэл: {loan_balance:,}₮\nШинэ зээл авахын өмнө өмнөх зээлээ төлнө үү.",
+                            inline=False
+                        )
+                    user_dm_embed.set_footer(text="MongolBot Banking System")
+                    await user.send(embed=user_dm_embed)
+                    logger.info(f"✅ User {user.id}-д зээлийн эрх сэргээгдсэний мэдэгдэл илгээлээ")
+                except Exception as dm_error:
+                    logger.warning(f"⚠️ User {user.id}-д DM илгээж чадсангүй: {dm_error}")
+                    await ctx.send("⚠️ Хэрэглэгчдэд DM илгээж чадсангүй, гэхдээ блок амжилттай арилгагдлаа.")
+
+        except Exception as e:
+            logger.error(f"unblock_loan алдаа: {e}")
+            await ctx.send("⚠️ Зээлийн эрх сэргээхэд алдаа гарлаа.")
+
+    @unblock_loan.error
+    async def unblock_loan_error(self, ctx: commands.Context, error: commands.CommandError):
+        """Unloan командын алдаа боловсруулах"""
+        if isinstance(error, commands.NotOwner):
+            await ctx.send("❌ Энэ командыг зөвхөн bot owner ашиглаж болно!")
+        elif isinstance(error, commands.MissingRequiredArgument):
+            await ctx.send("❌ Хэрэглэгчийг дурдана уу! Жишээ: `munloan @user`")
+        else:
+            await ctx.send("⚠️ Командыг ажиллуулахад алдаа гарлаа.")
+            logger.error(f"unblock_loan команд алдаа: {error}")
 
 async def setup(bot: commands.Bot) -> None:
     """Setup function to add the bank cog
