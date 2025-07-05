@@ -43,7 +43,6 @@ class Bank(commands.Cog):
         self.savings_interest_rate = 0.02  # 14 хоног тутмын хадгаламжийн хүү (2%)
         self.loan_interest_rate = 0.05  # 7 хоног тутмын зээлийн хүү (5%)
     async def setup_database(self) -> None:
-        logger.info("🏦 Bank систем setup эхлэж байна...")
         self.conn = await get_async_connection('economy')
         await self.conn.execute("PRAGMA journal_mode=WAL;")
         await self.conn.execute("""
@@ -81,30 +80,10 @@ class Bank(commands.Cog):
                 last_date TEXT  -- ✅ Бутархайгүй `YYYY-MM-DD HH:MM:SS` форматаар хадгалах
             )
         """)
-        await self.ensure_connection()
         await self.conn.commit()
 
-        # --- loans хүснэгтэд perma_block багана байхгүй бол автоматаар нэмэх (минимал код) ---
-        try:
-            logger.info("🔍 loans хүснэгтийн perma_block баганыг шалгаж байна...")
-            # Хүснэгтийн бүтцийг шалгаж perma_block багана байхгүй бол нэмэх
-            async with self.conn.execute("PRAGMA table_info(loans)") as cursor:
-                rows = await cursor.fetchall()
-                columns = [row[1] for row in rows]
-                logger.info(f"📋 loans хүснэгтийн бүх багануud: {columns}")
-                
-            if "perma_block" not in columns:
-                logger.info("➕ perma_block багана байхгүй тул нэмэж байна...")
-                await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
-                await self.conn.commit()
-                logger.info("✅ perma_block багана амжилттай нэмэгдлээ")
-            else:
-                logger.info("ℹ️ perma_block багана аль хэдийн байна")
-                
-        except Exception as e:
-            logger.error(f"❌ perma_block багана нэмэхэд алдаа: {e}")
-        
-        logger.info("✅ Bank database setup бүрэн дууслаа")
+        # --- loans хүснэгтэд perma_block багана байхгүй бол автоматаар нэмэх ---
+        await self.add_perma_block_column_if_not_exists()
 
     async def ensure_connection(self) -> None:
         if self.conn is None:
@@ -155,8 +134,6 @@ class Bank(commands.Cog):
         if self.vip_cog and hasattr(self.vip_cog, "get_loan_interest_rate_for_user"):
             return await self.vip_cog.get_loan_interest_rate_for_user(user_id)
         return 0.05  # Default interest rate 5%
-
-
 
     def number(self, number_str: str) -> Union[int, str]:
         if not isinstance(number_str, str):
@@ -920,6 +897,30 @@ class Bank(commands.Cog):
         else:
             await ctx.send("⚠️ Командыг ажиллуулахад алдаа гарлаа.")
             logger.error(f"unblock_loan команд алдаа: {error}")
+
+    async def add_perma_block_column_if_not_exists(self) -> None:
+        """loans хүснэгтэд perma_block багана байхгүй бол автоматаар нэмэх"""
+        try:
+            await self.ensure_connection()
+            if self.conn is None:
+                logger.error("Database connection not established")
+                return
+                
+            # Хүснэгтийн бүтцийг шалгах
+            async with self.conn.execute("PRAGMA table_info(loans)") as cursor:
+                columns = [row[1] async for row in cursor]
+            
+            # perma_block багана байхгүй бол нэмэх
+            if "perma_block" not in columns:
+                logger.info("perma_block багана байхгүй тул нэмэж байна...")
+                await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
+                await self.conn.commit()
+                logger.info("✅ perma_block багана амжилттай нэмэгдлээ")
+            else:
+                logger.info("✅ perma_block багана аль хэдийн байна")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ perma_block багана нэмэхэд алдаа гарлаа: {e}")
 
 async def setup(bot: commands.Bot) -> None:
     """Setup function to add the bank cog
