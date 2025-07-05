@@ -90,8 +90,11 @@ class Bank(commands.Cog):
             if "perma_block" not in columns:
                 await self.conn.execute("ALTER TABLE loans ADD COLUMN perma_block INTEGER DEFAULT 0")
                 await self.conn.commit()
+                logger.info("✅ perma_block багана амжилттай нэмэгдлээ")
+            else:
+                logger.debug("ℹ️ perma_block багана аль хэдийн байна")
         except Exception as e:
-            logger.warning(f"perma_block багана нэмэхэд алдаа: {e}")
+            logger.warning(f"perma_block багана шалгахад алдаа: {e}")
 
     async def ensure_connection(self) -> None:
         if self.conn is None:
@@ -746,7 +749,7 @@ class Bank(commands.Cog):
                             if user:
                                 embed = discord.Embed(
                                     title="🚨 Зээлийн төлбөр автоматаар суутгалаа",
-                                    description="Таны зээлийн хугацаа хэтэрсэн тул автоматаар мөнгө суутгалаа.",
+                                    description="Таны зээлийн хугацаа хэтрсэн тул автоматаар мөнгө суутгалаа.",
                                     color=0xe74c3c  # Улаан өнгө
                                 )
                                 embed.add_field(
