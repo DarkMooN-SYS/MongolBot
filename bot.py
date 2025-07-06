@@ -3,7 +3,7 @@ from discord.ext import commands
 import asyncio
 import logging
 import traceback
-from typing import Union, List, Optional
+from typing import Optional
 import os
 from dotenv import load_dotenv
 from cogs.utils import settings
@@ -44,7 +44,7 @@ intents.presences = True
 intents.message_content = True
 
 # Bot үүсгэх хэсгийг өөрчлөх
-activity = discord.Activity(type=discord.ActivityType.playing, name="mhelp")
+activity = discord.Game(name="MongolBot - Discord Bot")  # Ботын үйл ажиллагаа
 bot = commands.Bot(
     command_prefix=settings.get_prefix,  # settings.py-с prefix авах
     case_insensitive=True, 
@@ -156,7 +156,7 @@ async def on_ready():
     
     # Auto-configure rate limiting
     await auto_configure_rate_limiting()
-    
+
     # Persistent staff setup view бүртгэх - error handling нэмэх
     try:
         from cogs.admin.report import StaffSetupView
