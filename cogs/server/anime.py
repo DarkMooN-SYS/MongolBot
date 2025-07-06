@@ -4,7 +4,7 @@ from discord.ext.commands import Context, Bot
 import requests
 from googletrans import Translator
 import re
-from typing import Callable, Dict, Any, List
+from typing import Callable, Dict, List
 import asyncio
 
 # Rate limiting system import хийх
