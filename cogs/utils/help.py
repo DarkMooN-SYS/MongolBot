@@ -21,6 +21,7 @@ class HelpSelect(discord.ui.Select):
             "Ерөнхий": 0x3498db,    # Цэнхэр
             "Эдийн засаг": 0x2ecc71, # Ногоон
             "Тоглоом": 0xe74c3c,    # Улаан
+            "Мусик": 0x9b59b6,      # Ягаан
             "VIP": 0xf1c40f,        # Шар
             "Бусад": 0x95a5a6,      # Саарал
             "Бүгд": 0x9b59b6,       # Нил ягаан
@@ -69,6 +70,24 @@ class HelpSelect(discord.ui.Select):
                 ("💣 `minefield`, `mf`", "Бөмбөгөөс зайлсхийх - Өндөр шагналтай!"),
                 ("🎟️ `lottery`", "Сугалааны мэдээлэл харах"),
                 ("🎫 `buylottery <тоо>`", "Сугалааны тасалбар авах (VIP: +1 тасалбар)")
+            ]
+
+        elif category == "Мусик":
+            embed = discord.Embed(
+                title="🎶 Мусик",
+                description="**Мусиктэй холбоотой командууд:**",
+                color=colors["Мусик"]
+            )
+            commands_list = [
+                ("💰 `play`", "Дуу тоглуулах (эхний дуу шууд, дараагийнх queue-д)"),
+                ("🏦 `playlist`", "Playlist эсвэл олон дуу queue-д нэмэх"),
+                ("💸 `pause/resume`", "Түр зогсоох/үргэлжлүүлэх"),
+                ("📊 `skip`", "Дараагийн дуу руу шилжих"),
+                ("🛑 `stop`", "Дууг зогсоох"),
+                ("📃 `queue`", "Queue-д байгаа дуунууд"),
+                ("🔊 `volume`", "Дууны чанга (default: 50%)"),
+                ("🔊 `leave`", "Voice channel-ээс гарах"),
+                ("🎶 `musicinfo`, `minfo`", "Дууны мэдээлэл харах")
             ]
 
         elif category == "VIP":
@@ -189,10 +208,16 @@ async def send_help_embed(ctx_or_interaction: Union[commands.Context, discord.In
             "emoji": "💸",
             "name": "Банк & Эдийн засаг",
             "desc": "Мөнгө, данс, шилжүүлэг, хадгаламж, зээл"
-        },        "Тоглоом": {
+        },        
+        "Тоглоом": {
             "emoji": "🎲",
             "name": "Мөрийтэй тоглоомууд",
             "desc": "Казино, рулет, слот машин, сугалаа, бооцоот тоглоомууд"
+        },
+        "Мусик": {
+            "emoji": "🎶",
+            "name": "Мусик",
+            "desc": "Дуу тоглуулах, queue, дууны мэдээлэл"
         },
         "VIP": {
             "emoji": "👑",
