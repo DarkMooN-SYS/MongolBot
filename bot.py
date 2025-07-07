@@ -466,31 +466,6 @@ async def set_prefix_command(ctx: commands.Context, new_prefix: str):
         await ctx.send(embed=embed)
         logger.error(f"Префикс өөрчлөх үед алдаа гарлаа: {str(e)}")
 
-@bot.command(name='commands')
-@commands.is_owner()
-async def list_all_commands(ctx: commands.Context):
-    """Ботын бүх командуудыг цэгцтэй, embed хэлбэрээр харуулна (owner only)"""
-    commands_per_embed = 25  # Discord embed field limit
-    commands_list = [cmd for cmd in bot.commands if not cmd.hidden]
-    if not commands_list:
-        await ctx.send("Команд олдсонгүй.")
-        return
-    for i in range(0, len(commands_list), commands_per_embed):
-        embed = discord.Embed(title="🤖 Ботын бүх командууд", color=discord.Color.blurple())
-        for command in commands_list[i:i+commands_per_embed]:
-            aliases = f"\n**Aliases:** {', '.join(command.aliases)}" if command.aliases else ""
-            # Help текстээс Args: хэсгийг арилгах
-            help_text = command.help or "Тайлбар байхгүй"
-            if "Args:" in help_text:
-                help_text = help_text.split("Args:")[0].strip()
-            desc = help_text + aliases
-            embed.add_field(
-                name=f"`{ctx.prefix}{command.name}`",
-                value=desc,
-                inline=False
-            )
-        await ctx.send(embed=embed)
-
 @bot.command(name='rate_status')
 @commands.is_owner()
 async def rate_limit_status(ctx: commands.Context):
