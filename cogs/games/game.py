@@ -364,13 +364,17 @@ class Game(commands.Cog):
             self.win_streaks[user_id] += 1
         multiplier_map = {"🍒": 1.5, "💎": 2, "🍌": 2.5, "🥝": 3, "🎰": 5}
         multiplier = multiplier_map.get(slot_result[0], 0) if len(set(slot_result)) == 1 else 0
-        winnings = amount_f * multiplier if multiplier > 0 else -amount_f
+        
         if multiplier == 0:
             await self.bank_cog.update_balance('bank', ctx.author.id, -amount_f)
             if ctx.guild is not None:
                 await self.server_bank.update_balance(ctx.guild.id, int(amount_f))
+            winnings = -amount_f
         else:
-            await self.bank_cog.update_balance('bank', user_id, winnings)
+            # Net winnings = (amount * multiplier) - amount_bet
+            net_winnings = amount_f * multiplier - amount_f
+            await self.bank_cog.update_balance('bank', user_id, net_winnings)
+            winnings = amount_f * multiplier
         slot_display = f"| {' | '.join(slot_result)} |"
         if multiplier > 0:
             result_text = (
