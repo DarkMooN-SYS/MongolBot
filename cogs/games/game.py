@@ -348,7 +348,7 @@ class Game(commands.Cog):
             return
         if user_id not in self.win_streaks:
             self.win_streaks[user_id] = 0        # Slots машины алдах магадлалыг 60%-ээс 45% болгох
-        if random.randint(1, 100) <= 55:
+        if random.randint(1, 100) <= 60:
             slot_result = random.sample(["🍒", "💎", "🍌", "🥝", "🎰"], 3)
             self.win_streaks[user_id] = 0
         else:
