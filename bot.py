@@ -234,9 +234,9 @@ async def on_command_error(ctx: commands.Context, error: Exception):
             "role": "роль", "amount": "дүн", "reason": "шалтгаан", 
             "text": "текст", "name": "нэр"
         }.get(param_name, param_name)
-        
-        error_embed.description = f"❌ **{translated_param}** дутуу байна!\n💡 `{ctx.prefix}help {command_name}` - заавар харах"
-        
+
+        error_embed.description = f"❌ **{translated_param}** дутуу байна!\n💡 `{ctx.prefix}help`, `{ctx.prefix}tutorial` - заавар харах"
+
     elif isinstance(error, AttributeError) and str(error).endswith("'NoneType' object has no attribute 'lower'"):
         command_name = ctx.command.name if ctx.command else "энэ команд"
         error_embed.description = f"❌ **{command_name}** - хоосон утга оруулсан байна!"
