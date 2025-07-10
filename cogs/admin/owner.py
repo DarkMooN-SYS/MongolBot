@@ -201,5 +201,136 @@ class Owner(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Статистик авахад алдаа гарлаа: `{e}`")
 
+    @commands.command(name='leave_server', help='Тодорхой серверээс bot-ыг гаргах.')
+    @commands.is_owner()
+    async def leave_server(self, ctx: commands.Context, guild_id: int):
+        """Guild ID ашиглан тухайн серверээс bot-ыг гаргах"""
+        guild = self.bot.get_guild(guild_id)
+        
+        if not guild:
+            await ctx.send(f"❌ Guild ID `{guild_id}` олдсонгүй эсвэл bot тэр серверт байхгүй байна.")
+            return
+        
+        guild_name = guild.name
+        member_count = guild.member_count
+        
+        try:
+            # Confirmation embed
+            confirm_embed = discord.Embed(
+                title="⚠️ Сервер орхих баталгаажуулалт",
+                description=f"**Сервер:** {guild_name}\n**ID:** {guild_id}\n**Гишүүдийн тоо:** {member_count}",
+                color=discord.Color.orange()
+            )
+            confirm_embed.add_field(
+                name="❓ Та уг серверээс bot-ыг гаргахдаа итгэлтэй байна уу?",
+                value="Энэ үйлдлийг буцаах боломжгүй!",
+                inline=False
+            )
+            
+            msg = await ctx.send(embed=confirm_embed)
+            await msg.add_reaction("✅")  # Тийм
+            await msg.add_reaction("❌")  # Үгүй
+            
+            def check(reaction: discord.Reaction, user: discord.User):
+                return user == ctx.author and str(reaction.emoji) in ["✅", "❌"] and reaction.message.id == msg.id
+            
+            try:
+                reaction, user = await self.bot.wait_for('reaction_add', timeout=30.0, check=check)
+                
+                if str(reaction.emoji) == "✅":
+                    # Серверээс гарах
+                    await guild.leave()
+                    
+                    success_embed = discord.Embed(
+                        title="✅ Амжилттай серверээс гарлаа!",
+                        description=f"**Сервер:** {guild_name}\n**ID:** {guild_id}",
+                        color=discord.Color.green()
+                    )
+                    await ctx.send(embed=success_embed)
+                    
+                else:
+                    await ctx.send("❌ Серверээс гарах үйлдлийг цуцаллаа.")
+                    
+            except asyncio.TimeoutError:
+                await ctx.send("⏰ Хугацаа дууссан! Серверээс гарах үйлдлийг цуцаллаа.")
+                
+        except discord.Forbidden:
+            await ctx.send(f"❌ Серверээс гарах эрх хүрэлцэхгүй байна!")
+        except Exception as e:
+            await ctx.send(f"❌ Серверээс гарахад алдаа гарлаа: `{e}`")
+
+    @commands.command(name='list_servers', help='Bot байгаа бүх серверүүдийн жагсаалт.')
+    @commands.is_owner()
+    async def list_servers(self, ctx: commands.Context):
+        """Bot байгаа бүх серверүүдийн жагсаалт харуулах"""
+        guilds = self.bot.guilds
+        
+        if not guilds:
+            await ctx.send("❌ Bot ямар ч серверт байхгүй байна.")
+            return
+        
+        # Серверүүдийг гишүүдийн тооноор эрэмбэлэх
+        sorted_guilds = sorted(guilds, key=lambda g: g.member_count or 0, reverse=True)
+        
+        embed = discord.Embed(
+            title=f"🏠 Bot байгаа серверүүд ({len(guilds)})",
+            color=discord.Color.blue()
+        )
+        
+        # Хуудаслах (Discord embed limit-ээс болж)
+        page_size = 10
+        pages = []
+        
+        for i in range(0, len(sorted_guilds), page_size):
+            page_guilds = sorted_guilds[i:i + page_size]
+            page_content = ""
+            
+            for guild in page_guilds:
+                owner = guild.owner.name if guild.owner else "Тодорхойгүй"
+                page_content += f"**{guild.name}**\n"
+                page_content += f"├ ID: `{guild.id}`\n"
+                page_content += f"├ Гишүүд: {guild.member_count:,}\n"
+                page_content += f"└ Эзэн: {owner}\n\n"
+            
+            page_embed = discord.Embed(
+                title=f"🏠 Bot байгаа серверүүд ({len(guilds)}) - Хуудас {len(pages) + 1}",
+                description=page_content,
+                color=discord.Color.blue()
+            )
+            page_embed.set_footer(text=f"Нийт серверүүд: {len(guilds)} | Нийт гишүүд: {sum(g.member_count or 0 for g in guilds):,}")
+            pages.append(page_embed)
+        
+        # Хэрэв 1 хуудас л байвал шууд илгээх
+        if len(pages) == 1:
+            await ctx.send(embed=pages[0])
+            return
+        
+        # Олон хуудас байвал navigation нэмэх
+        current_page = 0
+        msg = await ctx.send(embed=pages[current_page])
+        
+        if len(pages) > 1:
+            await msg.add_reaction("⬅️")
+            await msg.add_reaction("➡️")
+            
+            def check(reaction: discord.Reaction, user: discord.User):
+                return user == ctx.author and str(reaction.emoji) in ["⬅️", "➡️"] and reaction.message.id == msg.id
+            
+            while True:
+                try:
+                    reaction, user = await self.bot.wait_for('reaction_add', timeout=60.0, check=check)
+                    
+                    if str(reaction.emoji) == "➡️" and current_page < len(pages) - 1:
+                        current_page += 1
+                        await msg.edit(embed=pages[current_page])
+                    elif str(reaction.emoji) == "⬅️" and current_page > 0:
+                        current_page -= 1
+                        await msg.edit(embed=pages[current_page])
+                    
+                    await msg.remove_reaction(reaction, user)
+                    
+                except asyncio.TimeoutError:
+                    break
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(Owner(bot))
