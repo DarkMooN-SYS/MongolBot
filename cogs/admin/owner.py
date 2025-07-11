@@ -287,10 +287,12 @@ class Owner(commands.Cog):
             
             for guild in page_guilds:
                 owner = guild.owner.name if guild.owner else "Тодорхойгүй"
+                joined_at = guild.me.joined_at.strftime('%Y-%m-%d %H:%M') if guild.me and guild.me.joined_at else "Тодорхойгүй"
                 page_content += f"**{guild.name}**\n"
                 page_content += f"├ ID: `{guild.id}`\n"
                 page_content += f"├ Гишүүд: {guild.member_count:,}\n"
-                page_content += f"└ Эзэн: {owner}\n\n"
+                page_content += f"├ Эзэн: {owner}\n"
+                page_content += f"└ Нэгдсэн огноо: {joined_at}\n\n"
             
             page_embed = discord.Embed(
                 title=f"🏠 Bot байгаа серверүүд ({len(guilds)}) - Хуудас {len(pages) + 1}",
