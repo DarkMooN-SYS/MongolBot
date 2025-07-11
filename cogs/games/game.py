@@ -58,12 +58,30 @@ class MinefieldView(discord.ui.View):
             return
         user_id = interaction.user.id
         winnings = int(self.bet * self.multiplier)
-        await self.cog.bank_cog.update_balance("bank", user_id, winnings)
-        embed = discord.Embed(
-            title="🎉 Шагнал авлаа!",
-            description=f"🥇 Та **{winnings:,}₮** хожлоо!",
-            color=discord.Color.gold()
-        )
+        
+        # Check if user still has an account
+        try:
+            current_balance = await self.cog.bank_cog.get_balance(user_id, 'bank')
+            if current_balance is None:
+                embed = discord.Embed(
+                    title="❌ Алдаа гарлаа!",
+                    description="Таны данс олдсонгүй. `mbank` командаар шинээр үүсгэнэ үү.",
+                    color=discord.Color.red()
+                )
+            else:
+                await self.cog.bank_cog.update_balance('bank', user_id, winnings)
+                embed = discord.Embed(
+                    title="🎉 Шагнал авлаа!",
+                    description=f"🥇 Та **{winnings:,}₮** хожлоо!",
+                    color=discord.Color.gold()
+                )
+        except Exception as e:
+            logging.error(f"Error updating balance in claim_reward: {e}")
+            embed = discord.Embed(
+                title="❌ Алдаа гарлаа!",
+                description="Шагнал олгоход алдаа гарлаа. Админтай холбогдоно уу.",
+                color=discord.Color.red()
+            )
         try:
             await interaction.response.edit_message(embed=embed, view=None)
         except (discord.errors.NotFound, discord.errors.InteractionResponded):
@@ -88,7 +106,10 @@ class MinefieldView(discord.ui.View):
                 if hasattr(interaction, 'guild') and interaction.guild is not None:
                     server_bank = self.cog.server_bank
                     if server_bank:
-                        await server_bank.update_balance(interaction.guild.id, int(self.bet))
+                        try:
+                            await server_bank.update_balance(interaction.guild.id, int(self.bet))
+                        except Exception as e:
+                            logging.error(f"Error updating server bank balance: {e}")
             else:
                 self.grid[index] = "✅"
                 self.opened.append(index)
@@ -402,12 +423,28 @@ class Game(commands.Cog):
 
     async def start_minefield(self, interaction: discord.Interaction, dimension: int, bombs: int, bet: float) -> None:
         user_id = interaction.user.id
-        balance = await self.bank_cog.get_balance(user_id, 'bank')
+        
+        # Check if user has a bank account
+        try:
+            balance = await self.bank_cog.get_balance(user_id, 'bank')
+            if balance is None:
+                await interaction.response.send_message("⚠️ Таны данс байхгүй байна. `mbank` командаар үүсгэнэ үү!", ephemeral=True)
+                return
+        except Exception as e:
+            logging.error(f"Error checking balance in start_minefield: {e}")
+            await interaction.response.send_message("❌ Дансны мэдээлэл шалгахад алдаа гарлаа.", ephemeral=True)
+            return
+            
         if balance < bet:
             await interaction.response.send_message("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!", ephemeral=True)
             return
         # Банкнаас мөнгө хасахыг энд хийж, view-д loading button нэмэхгүй
-        await self.bank_cog.update_balance("bank", user_id, -bet)
+        try:
+            await self.bank_cog.update_balance('bank', user_id, -int(bet))
+        except Exception as e:
+            logging.error(f"Error updating balance in start_minefield: {e}")
+            await interaction.response.send_message("❌ Дансны үйлдэлд алдаа гарлаа. Дахин оролдоно уу.", ephemeral=True)
+            return
         view = MinefieldView(interaction, self, bet, dimension, bombs)
         desc = '\n'.join(' '.join(view.grid[i * dimension:(i + 1) * dimension]) for i in range(dimension))
         embed = discord.Embed(
@@ -427,6 +464,11 @@ class Game(commands.Cog):
     @commands.command(name='minefield', aliases=["mf"])
     async def minefield(self, ctx: commands.Context, bet: str = '1') -> None:
         user_id = ctx.author.id
+        
+        # Check if user has a bank account first
+        if not await self.bank_cog.check_account_and_send_message(ctx):
+            return
+            
         if bet.lower() == 'all':
             balance = await self.bank_cog.get_balance(user_id, 'bank')
             max_bet = await self.get_max_bet(user_id)
