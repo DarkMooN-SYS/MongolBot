@@ -372,7 +372,7 @@ class VIP(commands.Cog):
         except Exception:
             return await ctx.send("⚠️ Системд алдаа гарлаа!")
         
-    @commands.command(name="buyvip!!!!!")
+    @commands.command(name="buyvip")
     async def buyvip(self, ctx: commands.Context) -> Optional[discord.Message]:
         """🎟 VIP эрх худалдан авах команд"""
         # Check if user already has an active VIP purchase session
@@ -525,7 +525,7 @@ class VIP(commands.Cog):
         except Exception:
             return await ctx.send("⚠️ Системд алдаа гарлаа!")
 
-    @commands.command(name="giftvip!!!!!")
+    @commands.command(name="giftvip")
     async def giftvip(self, ctx: commands.Context, user: discord.Member) -> Optional[discord.Message]:
         """💳 Найздаа VIP эрх бэлэглэх"""
         if ctx.author.id == user.id:
