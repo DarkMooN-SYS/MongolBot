@@ -338,6 +338,39 @@ class Music(commands.Cog):
             'clock': '⏰'
         }
 
+    def is_youtube_url(self, url: str) -> bool:
+        """🔗 YouTube URL эсэхийг шалгах"""
+        youtube_patterns = [
+            'youtube.com/watch',
+            'youtu.be/',
+            'music.youtube.com/watch',
+            'youtube.com/playlist',
+            'music.youtube.com/playlist'
+        ]
+        return any(pattern in url.lower() for pattern in youtube_patterns)
+    
+    def format_search_query(self, search: str) -> str:
+        """🔍 Search query форматлах"""
+        # URL эсэх шалгах
+        if (search.startswith('http') or self.is_youtube_url(search)):
+            return search
+        else:
+            # YouTube search query болгох
+            return f'ytsearch:{search}'
+    
+    def get_youtube_video_id(self, url: str) -> Optional[str]:
+        """🆔 YouTube video ID авах"""
+        try:
+            if 'youtu.be/' in url:
+                return url.split('youtu.be/')[1].split('?')[0].split('&')[0]
+            elif 'youtube.com/watch' in url:
+                return url.split('v=')[1].split('&')[0]
+            elif 'music.youtube.com/watch' in url:
+                return url.split('v=')[1].split('&')[0]
+        except:
+            pass
+        return None
+
     def format_duration(self, milliseconds: int) -> str:
         """⏱️ Хугацааг форматлах"""
         if milliseconds == 0:
@@ -532,14 +565,11 @@ class Music(commands.Cog):
                         # Add thumbnail if available (check for uri and artwork)
                         if hasattr(next_track, 'artwork') and next_track.artwork:
                             embed.set_thumbnail(url=next_track.artwork)
-                        elif hasattr(next_track, 'uri') and 'youtube' in str(next_track.uri):
+                        elif hasattr(next_track, 'uri') and next_track.uri:
                             # Generate YouTube thumbnail from video ID if possible
-                            try:
-                                video_id = str(next_track.uri).split('v=')[1].split('&')[0] if 'v=' in str(next_track.uri) else None
-                                if video_id:
-                                    embed.set_thumbnail(url=f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg")
-                            except:
-                                pass
+                            video_id = self.get_youtube_video_id(str(next_track.uri))
+                            if video_id:
+                                embed.set_thumbnail(url=f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg")
                         
                         # Queue info
                         remaining = len(queue.tracks)
@@ -588,17 +618,26 @@ class Music(commands.Cog):
         if not player:
             return
         
-        # Loading message
-        loading_embed = self.create_music_embed(
-            f"{self.emojis['loading']} Дуу хайж байна...",
-            f"**Хайлт:** `{search}`",
-            'warning'
-        )
+        # Loading message - YouTube link эсэх харуулах
+        if self.is_youtube_url(search) or search.startswith('http'):
+            loading_embed = self.create_music_embed(
+                f"{self.emojis['loading']} YouTube дуу ачаалж байна...",
+                f"**YouTube Link:** `{search[:80]}{'...' if len(search) > 80 else ''}`",
+                'warning'
+            )
+        else:
+            loading_embed = self.create_music_embed(
+                f"{self.emojis['loading']} YouTube-ээс дуу хайж байна...",
+                f"**Хайлт:** `{search}`",
+                'warning'
+            )
         loading_msg = await ctx.send(embed=loading_embed)
             
-        # Дуу хайх
+        # Дуу хайх - YouTube link эсвэл search query
         try:
-            tracks = await wavelink.Pool.fetch_tracks(f'ytsearch:{search}')
+            search_query = self.format_search_query(search)
+            tracks = await wavelink.Pool.fetch_tracks(search_query)
+            
             if not tracks:
                 embed = self.create_music_embed(
                     f"{self.emojis['error']} Дуу олдсонгүй",
@@ -611,7 +650,10 @@ class Music(commands.Cog):
                 )
                 embed.add_field(
                     name=f"{self.emojis['info']} Жишээ",
-                    value="`mplay Ariunaa - Mongol heleер`\n`mplay https://youtube.com/watch?v=...`",
+                    value="`mplay Ariunaa - Mongol heleер`\n"
+                          "`mplay https://youtube.com/watch?v=...`\n"
+                          "`mplay https://youtu.be/...`\n"
+                          "`mplay https://music.youtube.com/watch?v=...`",
                     inline=False
                 )
                 await loading_msg.edit(embed=embed)
@@ -645,6 +687,11 @@ class Music(commands.Cog):
                 # Thumbnail нэмэх (хэрэв боломжтой бол)
                 if hasattr(track, 'artwork') and track.artwork:
                     embed.set_thumbnail(url=track.artwork)
+                else:
+                    # YouTube video ID-аас thumbnail үүсгэх
+                    video_id = self.get_youtube_video_id(search)
+                    if video_id:
+                        embed.set_thumbnail(url=f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg")
                 
                 embed.add_field(
                     name=f"{self.emojis['microphone']} Зохиогч",
@@ -688,6 +735,11 @@ class Music(commands.Cog):
             # Thumbnail нэмэх
             if hasattr(track, 'artwork') and track.artwork:
                 embed.set_thumbnail(url=track.artwork)
+            else:
+                # YouTube video ID-аас thumbnail үүсгэх
+                video_id = self.get_youtube_video_id(search)
+                if video_id:
+                    embed.set_thumbnail(url=f"https://img.youtube.com/vi/{video_id}/mqdefault.jpg")
             
             embed.add_field(
                 name=f"{self.emojis['microphone']} Зохиогч",
