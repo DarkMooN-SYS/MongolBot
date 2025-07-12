@@ -104,6 +104,23 @@ class HelpSelect(discord.ui.Select):
                 ("✨ `dailyvip`", "VIP өдрийн шагнал")
             ]
 
+        elif category == "Ажил & Ур чадвар":
+            embed = discord.Embed(
+                title="🛠️ Ажил & Ур чадвар",
+                description="**Job системийн командууд:**",
+                color=0x2980b9
+            )
+            commands_list = [
+                ("🤺 `rob @user`", "Хэрэглэгчийг дээрэмдэх"),
+                ("🏦 `rob bank @user`", "Банк дээрэмдэх (20+ rob level)"),
+                ("💻 `hack @user`", "Хэрэглэгчийг хакдах"),
+                ("💾 `hack save @user`", "Банк хакдах (20+ hack level)"),
+                ("🛡️ `block`", "Өөрийгөө 5 цаг хамгаалах"),
+                ("📊 `status`, `status @user`", "Статус харах"),
+                ("📈 `levelinfo`, `li`", "Дэлгэрэнгүй level мэдээлэл"),
+                ("🏆 `rank`, `rank balance`, ...", "Тэргүүлэгчдийн жагсаалт"),
+            ]
+
         elif category == "Бүгд":
             embed = discord.Embed(
                 title="📚 Бүх командуудын жагсаалт",
@@ -223,6 +240,11 @@ async def send_help_embed(ctx_or_interaction: Union[commands.Context, discord.In
             "emoji": "👑",
             "name": "VIP гишүүнчлэл",
             "desc": "Онцгой давуу эрхүүд, VIP шагналууд"
+        },
+        "Ажил & Ур чадвар": {
+            "emoji": "🛠️",
+            "name": "Ажил & Ур чадвар",
+            "desc": "Job систем, rob/hack, skill level, rank"
         },
         "Бүгд": {
             "emoji": "📚",
