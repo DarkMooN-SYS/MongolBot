@@ -273,7 +273,7 @@ class RollDuel(commands.Cog):
         
     @commands.command(name='duelroll')
     @commands.cooldown(1, 30, commands.BucketType.user)
-    async def duel_challenge(self, ctx: commands.Context, target: discord.Member, bet_amount: int):
+    async def duel_challenge(self, ctx: commands.Context, target: discord.Member, bet_amount: str):
         """
         Өөр хүнтэй шооны дуэл хийх
         
@@ -289,7 +289,7 @@ class RollDuel(commands.Cog):
             )
             await ctx.send(embed=embed)
             return
-        bet_amount = int(bet_parsed)
+        bet_amount_int = int(bet_parsed)
         if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
             return
         challenger = ctx.author
@@ -315,7 +315,7 @@ class RollDuel(commands.Cog):
             return
             
         # Мөнгөний дүн шалгах
-        if bet_amount < 100:
+        if bet_amount_int < 100:
             embed = discord.Embed(
                 title="❌ Алдаа!",
                 description="Хамгийн бага бэлгэдэх дүн **100₮** байх ёстой!",
@@ -324,7 +324,7 @@ class RollDuel(commands.Cog):
             await ctx.send(embed=embed)
             return
             
-        if bet_amount > 1000000:
+        if bet_amount_int > 1000000:
             embed = discord.Embed(
                 title="❌ Алдаа!",
                 description="Хамгийн их бэлгэдэх дүн **1,000,000₮** байх ёстой!",
@@ -363,33 +363,29 @@ class RollDuel(commands.Cog):
                 )
                 await ctx.send(embed=embed)
                 return
-                
             # Сорилт өгсөн хүний мөнгө шалгах
             challenger_balance = await bank_cog.get_balance(challenger.id, 'bank')  # type: ignore
-            if challenger_balance is None or challenger_balance < bet_amount:
+            if challenger_balance is None or challenger_balance < bet_amount_int:
                 embed = discord.Embed(
                     title="❌ Хангалтгүй мөнгө!",
-                    description=f"Танд **{bet_amount:,}₮** хангалттай мөнгө байхгүй байна!",
+                    description=f"Танд **{bet_amount_int:,}₮** хангалттай мөнгө байхгүй байна!",
                     color=discord.Color.red()
                 )
                 await ctx.send(embed=embed)
                 return
-                
             # Сорилт авсан хүний мөнгө шалгах
             target_balance = await bank_cog.get_balance(target.id, 'bank')  # type: ignore
-            if target_balance is None or target_balance < bet_amount:
+            if target_balance is None or target_balance < bet_amount_int:
                 embed = discord.Embed(
                     title="❌ Алдаа!",
-                    description=f"<@{target.id}> хэрэглэгчид **{bet_amount:,}₮** хангалттай мөнгө байхгүй байна!",
+                    description=f"<@{target.id}> хэрэглэгчид **{bet_amount_int:,}₮** хангалттай мөнгө байхгүй байна!",
                     color=discord.Color.red()
                 )
                 await ctx.send(embed=embed)
                 return
-                
             # Мөнгө хасах
-            await bank_cog.update_balance('bank', challenger.id, -bet_amount)  # type: ignore
-            await bank_cog.update_balance('bank', target.id, -bet_amount)  # type: ignore
-            
+            await bank_cog.update_balance('bank', challenger.id, -bet_amount_int)  # type: ignore
+            await bank_cog.update_balance('bank', target.id, -bet_amount_int)  # type: ignore
         except Exception as e:
             logger.error(f"Error checking balances for duel: {e}")
             embed = discord.Embed(
@@ -403,11 +399,10 @@ class RollDuel(commands.Cog):
         # Идэвхтэй дуэлүүдэд нэмэх
         self.active_duels[challenger.id] = True
         self.active_duels[target.id] = True
-        
         # Сорилтын embed
         embed = discord.Embed(
             title="⚔️ Шооны Дуэлийн Сорилт!",
-            description=f"<@{challenger.id}> танд **{bet_amount:,}₮**-ний төлөө дуэл өгч байна!",
+            description=f"<@{challenger.id}> танд **{bet_amount_int:,}₮**-ний төлөө дуэл өгч байна!",
             color=discord.Color.blue()
         )
         embed.add_field(
@@ -422,7 +417,7 @@ class RollDuel(commands.Cog):
         )
         embed.add_field(
             name="💰 Бэлгэдэх дүн:", 
-            value=f"**{bet_amount:,}₮**", 
+            value=f"**{bet_amount_int:,}₮**", 
             inline=True
         )
         embed.add_field(
@@ -431,8 +426,7 @@ class RollDuel(commands.Cog):
             inline=False
         )
         embed.set_footer(text="60 секундын дотор хариулна уу!")
-        
-        view = DuelChallengeView(challenger.id, target.id, bet_amount, self)
+        view = DuelChallengeView(challenger.id, target.id, bet_amount_int, self)
         message = await ctx.send(f"<@{target.id}>", embed=embed, view=view)
         view.message = message
         
@@ -447,8 +441,8 @@ class RollDuel(commands.Cog):
         if not view.accepted:
             try:
                 if hasattr(bank_cog, 'update_balance'):
-                    await bank_cog.update_balance('bank', challenger.id, bet_amount)  # type: ignore
-                    await bank_cog.update_balance('bank', target.id, bet_amount)  # type: ignore
+                    await bank_cog.update_balance('bank', challenger.id, bet_amount_int)  # type: ignore
+                    await bank_cog.update_balance('bank', target.id, bet_amount_int)  # type: ignore
             except Exception as e:
                 logger.error(f"Error refunding money: {e}")
 
