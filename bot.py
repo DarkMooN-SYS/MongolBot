@@ -76,6 +76,10 @@ extensions = [
     'cogs.games.game',
     'cogs.games.lottery',
     
+    # Duel Games
+    'cogs.duelgame.duelroll',
+    
+    
     # Server Cogs
     'cogs.server.anime',
     'cogs.server.horseracing',
