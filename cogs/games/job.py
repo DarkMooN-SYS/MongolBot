@@ -887,20 +887,37 @@ class Job(commands.Cog):
             await ctx.send(f"⚠️ Хадгаламжаас хулгайлах боломжгүй байна!")
             return
 
-        # Update savings and hacker's balance
-        if self.conn is not None:
-            # Deduct from target's savings
-            await self.conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (stolen_amount, target_id))
-            await self.conn.execute("INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?", (hacker_id, stolen_amount, stolen_amount))
-            await self.conn.commit()
-            # Get display names
-            hacker = ctx.bot.get_user(hacker_id)
-            target = ctx.bot.get_user(target_id)
-            hacker_name = hacker.display_name if hacker else str(hacker_id)
-            target_name = target.display_name if target else str(target_id)
-            await ctx.send(f"💾 {hacker_name} {target_name}-ын хадгаламжаас {stolen_amount:,}₮ хакдлаа!")
-        else:
-            await ctx.send(f"❌ Хадгаламжийн баланс шинэчлэх боломжгүй байна!")
+        # Update savings and hacker's balance with retry on locked
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                if self.conn is not None:
+                    async with self.conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (stolen_amount, target_id)):
+                        pass
+                    async with self.conn.execute("INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?", (hacker_id, stolen_amount, stolen_amount)):
+                        pass
+                    await self.conn.commit()
+                    # Get display names
+                    hacker = ctx.bot.get_user(hacker_id)
+                    target = ctx.bot.get_user(target_id)
+                    hacker_name = hacker.display_name if hacker else str(hacker_id)
+                    target_name = target.display_name if target else str(target_id)
+                    await ctx.send(f"💾 {hacker_name} {target_name}-ын хадгаламжаас {stolen_amount:,}₮ хакдлаа!")
+                    return
+                else:
+                    await ctx.send(f"❌ Хадгаламжийн баланс шинэчлэх боломжгүй байна!")
+                    return
+            except Exception as e:
+                if "database is locked" in str(e):
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(0.5)
+                        continue
+                    else:
+                        await ctx.send(f"❌ Алдаа: database is locked. Please try again later.")
+                        return
+                else:
+                    await ctx.send(f"❌ Алдаа гарлаа: {str(e)}")
+                    return
 
     @commands.command(name='block')
     async def block(self, ctx: commands.Context) -> None:
