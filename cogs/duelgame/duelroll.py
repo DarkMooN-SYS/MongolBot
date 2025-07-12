@@ -250,6 +250,21 @@ class DuelGameView(discord.ui.View):
             pass
 
 class RollDuel(commands.Cog):
+    import re
+
+    def parse_bet(self, bet_str: Optional[str]) -> Optional[float]:
+        if bet_str is None:
+            return None
+        bet_str = bet_str.lower().strip().replace(",", ".")
+        multipliers = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
+        match = self.re.fullmatch(r"(\d+(\.\d+)?)([kmbt]?)", bet_str)
+        if not match:
+            return None
+        num, _, suffix = match.groups()
+        try:
+            return float(num) * multipliers.get(suffix, 1)
+        except ValueError:
+            return None
     """Шооны дуэл - 1v1 тоглоом"""
     
     def __init__(self, bot: commands.Bot):
@@ -262,11 +277,21 @@ class RollDuel(commands.Cog):
         """
         Өөр хүнтэй шооны дуэл хийх
         
-        Жишээ: !дуэл @хэрэглэгч 1000
+        Жишээ: mдуэл @хэрэглэгч 1000
         """
+        # Parse bet amount using parse_bet
+        bet_parsed = self.parse_bet(str(bet_amount))
+        if bet_parsed is None or bet_parsed != int(bet_parsed):
+            embed = discord.Embed(
+                title="❌ Алдаа!",
+                description="Бэлгэдэх дүнг зөвхөн бүхэл тоогоор оруулна уу! Жишээ: mduelroll @хэрэглэгч 1000, mduelroll @хэрэглэгч 1k",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        bet_amount = int(bet_parsed)
         if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
             return
-            
         challenger = ctx.author
         
         # Өөрөө өөртөө сорилт өгөх боломжгүй

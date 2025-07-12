@@ -428,22 +428,38 @@ class Game(commands.Cog):
         try:
             balance = await self.bank_cog.get_balance(user_id, 'bank')
             if balance is None:
-                await interaction.response.send_message("⚠️ Таны данс байхгүй байна. `mbank` командаар үүсгэнэ үү!", ephemeral=True)
+                try:
+                    await interaction.response.send_message("⚠️ Таны данс байхгүй байна. `mbank` командаар үүсгэнэ үү!", ephemeral=True)
+                except discord.errors.NotFound:
+                    if isinstance(interaction.channel, Messageable):
+                        await interaction.channel.send("⚠️ Таны данс байхгүй байна. `mbank` командаар үүсгэнэ үү!")
                 return
         except Exception as e:
             logging.error(f"Error checking balance in start_minefield: {e}")
-            await interaction.response.send_message("❌ Дансны мэдээлэл шалгахад алдаа гарлаа.", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ Дансны мэдээлэл шалгахад алдаа гарлаа.", ephemeral=True)
+            except discord.errors.NotFound:
+                if isinstance(interaction.channel, Messageable):
+                    await interaction.channel.send("❌ Дансны мэдээлэл шалгахад алдаа гарлаа.")
             return
             
         if balance < bet:
-            await interaction.response.send_message("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!", ephemeral=True)
+            try:
+                await interaction.response.send_message("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!", ephemeral=True)
+            except discord.errors.NotFound:
+                if isinstance(interaction.channel, Messageable):
+                    await interaction.channel.send("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!")
             return
         # Банкнаас мөнгө хасахыг энд хийж, view-д loading button нэмэхгүй
         try:
             await self.bank_cog.update_balance('bank', user_id, -int(bet))
         except Exception as e:
             logging.error(f"Error updating balance in start_minefield: {e}")
-            await interaction.response.send_message("❌ Дансны үйлдэлд алдаа гарлаа. Дахин оролдоно уу.", ephemeral=True)
+            try:
+                await interaction.response.send_message("❌ Дансны үйлдэлд алдаа гарлаа. Дахин оролдоно уу.", ephemeral=True)
+            except discord.errors.NotFound:
+                if isinstance(interaction.channel, Messageable):
+                    await interaction.channel.send("❌ Дансны үйлдэлд алдаа гарлаа. Дахин оролдоно уу.")
             return
         view = MinefieldView(interaction, self, bet, dimension, bombs)
         desc = '\n'.join(' '.join(view.grid[i * dimension:(i + 1) * dimension]) for i in range(dimension))
