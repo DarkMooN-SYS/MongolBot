@@ -196,11 +196,9 @@ class DuelGameView(discord.ui.View):
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
-                # Хожигчийн мөнгийг нэмэх (хоёр тавилга: өөрийнх + ялагдсанынх)
-                # Ялагдсан хүнээс дахин хасахгүй - аль хэдийн эхэнд хасагдсан
-                total_winnings = self.bet_amount * 2
+                # Хожигчийн мөнгийг нэмэх (хоёр тоглогчийн нийлбэр бооцоо)
+                total_winnings = self.bet_amount + self.bet_amount
                 await bank_cog.update_balance('bank', winner_id, total_winnings)  # type: ignore
-                
                 embed.title = "🏆 Дуэл Дууслаа!"
                 embed.color = discord.Color.gold()
                 embed.add_field(
