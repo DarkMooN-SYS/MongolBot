@@ -322,7 +322,7 @@ class RollDuel(commands.Cog):
             await ctx.send(embed=embed)
             return
             
-        if bet_amount_int > 1000000:
+        if bet_amount_int > 5000000:
             embed = discord.Embed(
                 title="❌ Алдаа!",
                 description="Хамгийн их бэлгэдэх дүн **1,000,000₮** байх ёстой!",

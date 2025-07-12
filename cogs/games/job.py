@@ -24,7 +24,28 @@ class Job(commands.Cog):
         self.conn: Optional[aiosqlite.Connection] = None
         self.bot.loop.create_task(self.setup_database())
         self.job_levels = self.load_job_levels()
+        self.owner_bypass_enabled = False  # Global owner bypass toggle
 
+    @commands.command(name='jobtoggle')
+    @commands.is_owner()
+    async def jobtoggle(self, ctx: commands.Context, state: str = ''):
+        """
+        Owner-only command to toggle global bypass for all job commands.
+        Usage: !jobtoggle on / !jobtoggle off / !jobtoggle (shows status)
+        """
+        if state is None:
+            status = "ON" if self.owner_bypass_enabled else "OFF"
+            await ctx.send(f"🔄 Owner bypass toggle: **{status}**")
+            return
+        state = state.lower()
+        if state in ["on", "enable", "true"]:
+            self.owner_bypass_enabled = True
+            await ctx.send("✅ Owner bypass enabled! Owner can use all job commands without cooldown/block checks.")
+        elif state in ["off", "disable", "false"]:
+            self.owner_bypass_enabled = False
+            await ctx.send("❌ Owner bypass disabled! Owner will be subject to all normal restrictions.")
+        else:
+            await ctx.send("❌ Usage: !jobtoggle on / off")
     async def setup_database(self) -> None:
         """
         Өгөгдлийн сангийн хүснэгтүүдийг үүсгэнэ.
@@ -580,6 +601,24 @@ class Job(commands.Cog):
     # ----------------- Роб хийх команд group -----------------
     @commands.group(name='rob', invoke_without_command=True)
     async def rob(self, ctx: commands.Context, target: discord.Member) -> None:
+        is_owner = await self.bot.is_owner(ctx.author)
+        robber_id, target_id = ctx.author.id, target.id
+        if is_owner and self.owner_bypass_enabled:
+            target_balance = await self.get_balance(target_id)
+            robber_balance = await self.get_balance(robber_id)
+            if target_balance <= 0:
+                await ctx.send(f"⚠️ {target.display_name} дээрэмдэх боломжгүй!")
+                return
+            status = await self.get_user_status_data(robber_id)
+            rob_level = status.get("rob_level", 1)
+            rob_config = self.get_level_config("ROB_LEVELS", rob_level)
+            percent = rob_config.get("percent", 0.02)
+            stolen_amount = int(target_balance * percent)
+            await self.update_balance(robber_id, stolen_amount)
+            await self.update_balance(target_id, -stolen_amount)
+            await ctx.send(f"💰 {ctx.author.display_name} {target.display_name}-аас {stolen_amount:,}₮ хулгайллаа! (Owner bypass)")
+            await self.add_xp(robber_id, 20)
+            return
         """
         Хэрэглэгч өөр нэгэн хэрэглэгчийг дээрэмдэх команд.
         VIP бол илүү өндөр амжилтын хувь, бага cooldown авна.
@@ -635,6 +674,23 @@ class Job(commands.Cog):
 
     @rob.command(name='bank')
     async def rob_bank(self, ctx: commands.Context, target: discord.Member) -> None:
+        is_owner = await self.bot.is_owner(ctx.author)
+        robber_id, target_id = ctx.author.id, target.id
+        if is_owner and self.owner_bypass_enabled:
+            target_bank = await self.get_bank_balance(target_id)
+            if target_bank <= 0:
+                await ctx.send(f"⚠️ {target.display_name}-ын банк хоосон байна!")
+                return
+            status = await self.get_user_status_data(robber_id)
+            rob_level = status.get("rob_level", 1)
+            rob_config = self.get_level_config("ROB_LEVELS", rob_level)
+            percent = rob_config.get("percent", 0.03)
+            stolen_amount = int(target_bank * percent)
+            await self.update_bank_balance(robber_id, stolen_amount)
+            await self.update_bank_balance(target_id, -stolen_amount)
+            await self.add_xp(robber_id, 30)
+            await ctx.send(f"🏦 {ctx.author.display_name} {target.display_name}-ын банкнаас {stolen_amount:,}₮ дээрэмдлээ! (Owner bypass)")
+            return
         """
         Хэрэглэгч банк дээрэмдэх команд (!rob bank @user)
         20 түвшинээс дээш хэрэглэгчид зөвхөн боломжтой
@@ -670,6 +726,17 @@ class Job(commands.Cog):
     # ----------------- Хак хийх команд group -----------------
     @commands.group(name='hack', invoke_without_command=True)
     async def hack(self, ctx: commands.Context, target: discord.Member) -> None:
+        is_owner = await self.bot.is_owner(ctx.author)
+        hacker_id, target_id = ctx.author.id, target.id
+        if is_owner and self.owner_bypass_enabled:
+            status = await self.get_user_status_data(hacker_id)
+            hack_level = status.get("hack_level", 1)
+            hack_config = self.get_level_config("HACK_LEVELS", hack_level)
+            percent = hack_config.get("percent", 0.02)
+            await ctx.send(f"⏳ Хак эхэллээ, 1 минутын дараа хакдах болно! (Owner bypass)")
+            asyncio.create_task(self.hack_with_delay(ctx, hacker_id, target_id, percent))
+            await self.add_xp(hacker_id, 25)
+            return
         """
         Хэрэглэгч өөр нэгэн хэрэглэгчийг хакдах команд.
         VIP бол бага cooldown авна.
@@ -719,6 +786,28 @@ class Job(commands.Cog):
 
     @hack.command(name='save')
     async def hack_save(self, ctx: commands.Context, target: discord.Member) -> None:
+        is_owner = await self.bot.is_owner(ctx.author)
+        hacker_id, target_id = ctx.author.id, target.id
+        if is_owner and self.owner_bypass_enabled:
+            status = await self.get_user_status_data(hacker_id)
+            hack_level = status.get("hack_level", 1)
+            hack_config = self.get_level_config("HACK_LEVELS", hack_level)
+            percent = hack_config.get("percent", 0.03)
+            target_savings = 0
+            try:
+                if self.conn is not None:
+                    async with self.conn.execute("SELECT balance FROM savings WHERE user_id=?", (target_id,)) as cursor:
+                        result = await cursor.fetchone()
+                        target_savings = result[0] if result and result[0] is not None else 0
+            except Exception:
+                target_savings = 0
+            if target_savings <= 0:
+                await ctx.send(f"⚠️ {target.display_name}-ын хадгаламж хоосон байна!")
+                return
+            await ctx.send(f"⏳ Хадгаламж хак эхэллээ, 1 минутын дараа хакдах болно! (Owner bypass)")
+            asyncio.create_task(self.hack_savings_with_delay(ctx, hacker_id, target_id, percent))
+            await self.add_xp(hacker_id, 40)
+            return
         """
         Хэрэглэгч банкны хадгаламжийг хакдах команд (!hack save @user)
         20 түвшинээс дээш хэрэглэгчид зөвхөн боломжтой
@@ -736,32 +825,91 @@ class Job(commands.Cog):
         if current_time < block_cooldown:
             await ctx.send(f"🛡️ **{target.display_name}** хамгаалагдсан тул хакдах боломжгүй!")
             return
-        
+
         # 20 түвшин шаардлага шалгах
         status = await self.get_user_status_data(hacker_id)
         hack_level = status.get("hack_level", 1)
-        
+
         if hack_level < 20:
             await ctx.send(f"❌ **Hack Save** командыг ашиглахын тулд та дор хаяж **20 hack level**-тэй байх ёстой! (Таны одоогийн hack level: {hack_level})")
             return
-        
+
         hack_config = self.get_level_config("HACK_LEVELS", hack_level)
         cooldown_time = hack_config.get("cooldown", 86400)
         percent = hack_config.get("percent", 0.03)  # Хадгаламж хакдах хувь
         cooldown = await self.get_cooldown(hacker_id, "hack")
-        
+
         if current_time < cooldown:
             await ctx.send(f"⏳ Дахин хакдахын тулд хүлээнэ үү: {await self.format_remaining_time(cooldown - current_time)}")
             return
-            
-        # Банк хак эхлүүлэх (1 минутын delay-тай)
+
+        # Хадгаламжийн үлдэгдэл авах
+        target_savings = 0
+        try:
+            if self.conn is not None:
+                async with self.conn.execute("SELECT balance FROM savings WHERE user_id=?", (target_id,)) as cursor:
+                    result = await cursor.fetchone()
+                    target_savings = result[0] if result and result[0] is not None else 0
+        except Exception:
+            target_savings = 0
+
+        if target_savings <= 0:
+            await ctx.send(f"⚠️ {target.display_name}-ын хадгаламж хоосон байна!")
+            return
+
+        # Банк хадгаламж хак эхлүүлэх (1 минутын delay-тай)
         await self.update_cooldown(hacker_id, "hack", cooldown_time)
-        await ctx.send(f"⏳ Банк хак эхэллээ, 1 минутын дараа хакдах болно!")
-        asyncio.create_task(self.hack_bank_with_delay(ctx, hacker_id, target_id, percent))
+        await ctx.send(f"⏳ Хадгаламж хак эхэллээ, 1 минутын дараа хакдах болно!")
+        asyncio.create_task(self.hack_savings_with_delay(ctx, hacker_id, target_id, percent))
         await self.add_xp(hacker_id, 40)
+
+    async def hack_savings_with_delay(self, ctx: commands.Context, hacker_id: int, target_id: int, percent: float = 0.03) -> None:
+        """
+        1 минутын дараа хадгаламжийн үлдэгдлээс хулгайлна
+        """
+        await asyncio.sleep(60)
+        # Get target savings
+        target_savings = 0
+        try:
+            if self.conn is not None:
+                async with self.conn.execute("SELECT balance FROM savings WHERE user_id=?", (target_id,)) as cursor:
+                    result = await cursor.fetchone()
+                    target_savings = result[0] if result and result[0] is not None else 0
+        except Exception:
+            target_savings = 0
+
+        if target_savings <= 0:
+            await ctx.send(f"⚠️ Хадгаламж хоосон байна!")
+            return
+
+        stolen_amount = int(target_savings * percent)
+        if stolen_amount <= 0:
+            await ctx.send(f"⚠️ Хадгаламжаас хулгайлах боломжгүй байна!")
+            return
+
+        # Update savings and hacker's balance
+        if self.conn is not None:
+            # Deduct from target's savings
+            await self.conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (stolen_amount, target_id))
+            await self.conn.execute("INSERT INTO economy (user_id, balance) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET balance = balance + ?", (hacker_id, stolen_amount, stolen_amount))
+            await self.conn.commit()
+            # Get display names
+            hacker = ctx.bot.get_user(hacker_id)
+            target = ctx.bot.get_user(target_id)
+            hacker_name = hacker.display_name if hacker else str(hacker_id)
+            target_name = target.display_name if target else str(target_id)
+            await ctx.send(f"💾 {hacker_name} {target_name}-ын хадгаламжаас {stolen_amount:,}₮ хакдлаа!")
+        else:
+            await ctx.send(f"❌ Хадгаламжийн баланс шинэчлэх боломжгүй байна!")
 
     @commands.command(name='block')
     async def block(self, ctx: commands.Context) -> None:
+        user_id = ctx.author.id
+        is_owner = await self.bot.is_owner(ctx.author)
+        if is_owner and self.owner_bypass_enabled:
+            await self.update_cooldown(user_id, "block", 18000)
+            await ctx.send(f"🛡️ {ctx.author.display_name} 5 цаг турш хамгаалагдлаа! (Owner bypass)")
+            return
         """
         Хэрэглэгч өөрийгөө 5 цаг хамгаалах команд.
         """
@@ -787,75 +935,6 @@ class Job(commands.Cog):
         embed = await self.make_status_embed(ctx, status, target_member)
         await ctx.send(embed=embed)
 
-    @commands.command(name='resetcooldown')
-    @commands.is_owner()
-    async def reset_cooldown(self, ctx: commands.Context, user: discord.User, cooldown_type: Optional[str] = None) -> None:
-        """
-        Ботын эзэн хэрэглэгчийн cooldown-уудыг reset хийх команд.
-        Жишээ: !resetcooldown @user hack
-        Жишээ: !resetcooldown @user (бүх cooldown-уудыг reset хийнэ)
-        """
-        user_id = user.id
-        
-        if cooldown_type and cooldown_type.lower() not in ['hack', 'rob', 'block']:
-            await ctx.send("❌ Зөвшөөрөгдсөн cooldown төрлүүд: `hack`, `rob`, `block`")
-            return
-        
-        if self.conn is None:
-            await ctx.send("❌ Өгөгдлийн санд холбогдох боломжгүй!")
-            return
-        
-        try:
-            if cooldown_type:
-                # Тодорхой нэг cooldown reset хийх
-                cooldown_column = f"{cooldown_type.lower()}_cooldown"
-                await self.conn.execute(f"""
-                    INSERT INTO job_cooldowns (user_id, {cooldown_column}) 
-                    VALUES (?, 0) 
-                    ON CONFLICT(user_id) DO UPDATE SET {cooldown_column} = 0
-                """, (user_id,))
-                await self.conn.commit()
-                
-                embed = discord.Embed(
-                    title="✅ Cooldown Reset хийгдлээ",
-                    description=f"**{user.display_name}**-ын **{cooldown_type}** cooldown reset хийгдлээ!",
-                    color=discord.Color.green()
-                )
-                await ctx.send(embed=embed)
-                
-                # Хэрэглэгчид DM илгээх
-                try:
-                    await user.send(f"✅ Таны **{cooldown_type}** cooldown ботын эзнээр reset хийгдлээ!")
-                except:
-                    pass
-                    
-            else:
-                # Бүх cooldown-уудыг reset хийх
-                await self.conn.execute("""
-                    INSERT INTO job_cooldowns (user_id, hack_cooldown, rob_cooldown, block_cooldown) 
-                    VALUES (?, 0, 0, 0) 
-                    ON CONFLICT(user_id) DO UPDATE SET 
-                        hack_cooldown = 0,
-                        rob_cooldown = 0,
-                        block_cooldown = 0
-                """, (user_id,))
-                await self.conn.commit()
-                
-                embed = discord.Embed(
-                    title="✅ Бүх Cooldown Reset хийгдлээ",
-                    description=f"**{user.display_name}**-ын бүх cooldown-ууд (hack, rob, block) reset хийгдлээ!",
-                    color=discord.Color.green()
-                )
-                await ctx.send(embed=embed)
-                
-                # Хэрэглэгчид DM илгээх
-                try:
-                    await user.send("✅ Таны бүх cooldown-ууд (hack, rob, block) ботын эзнээр reset хийгдлээ!")
-                except:
-                    pass
-                    
-        except Exception as e:
-            await ctx.send(f"❌ Алдаа гарлаа: {str(e)}")
 
     @commands.command(name='levelup')
     @commands.is_owner()
