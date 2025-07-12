@@ -365,7 +365,7 @@ class Job(commands.Cog):
         
         # Footer мэдээлэл
         embed.set_footer(
-            text=f"MongolBot Economy System • {ctx.guild.name if ctx.guild else 'DM'}", 
+            text=f"MongolBot Job System • {ctx.guild.name if ctx.guild else 'DM'}", 
             icon_url=ctx.bot.user.avatar.url if ctx.bot.user.avatar else None
         )
         
