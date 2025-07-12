@@ -1,0 +1,28 @@
+{
+  "ROB_LEVELS": {
+    "5": { "success": 0.52 },
+    "10": { "percent": 0.025 },
+    "15": { "success": 0.55 },
+    "20": { "percent": 0.03 },
+    "25": { "cooldown": 3400, "success": 0.6 },
+    "30": { "percent": 0.035, "cooldown": 3000 }
+  },
+  "HACK_LEVELS": {
+    "5": { "success": 0.52 },
+    "10": { "percent": 0.025 },
+    "15": { "success": 0.55 },
+    "20": { "percent": 0.03 },
+    "25": { "cooldown": 82000, "success": 0.6 },
+    "30": { "percent": 0.035, "cooldown": 72000 }
+  },
+  "DEFAULT_ROB": {
+    "cooldown": 3600,
+    "success": 0.5,
+    "percent": 0.02
+  },
+  "DEFAULT_HACK": {
+    "cooldown": 86400,
+    "success": 0.5,
+    "percent": 0.02
+  }
+}

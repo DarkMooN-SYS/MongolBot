@@ -75,6 +75,7 @@ extensions = [
     # Games Cogs
     'cogs.games.game',
     'cogs.games.lottery',
+    'cogs.games.job',
     
     # Duel Games
     'cogs.duelgame.duelroll',
