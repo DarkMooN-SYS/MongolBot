@@ -195,8 +195,8 @@ class DuelGameView(discord.ui.View):
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
-                # Хожигчийн мөнгийг нэмэх (хоёр тоглогчийн нийлбэр бооцоо)
-                total_winnings = self.bet_amount + self.bet_amount
+                # Хожигчийн мөнгийг зөвхөн нийт бооцооны хэмжээгээр нэмнэ (хоёр тоглогчийн нийлбэр)
+                total_winnings = self.bet_amount * 2
                 await bank_cog.update_balance('bank', winner_id, total_winnings)  # type: ignore
                 embed.title = "🏆 Дуэл Дууслаа!"
                 embed.color = discord.Color.gold()
@@ -217,7 +217,6 @@ class DuelGameView(discord.ui.View):
                 )
             else:
                 embed.add_field(name="❌ Алдаа:", value="Банкны систем олдсонгүй!", inline=False)
-                
         except Exception as e:
             logger.error(f"Error in duel finish: {e}")
             embed.add_field(name="❌ Алдаа:", value="Мөнгө шилжүүлэхэд алдаа гарлаа!", inline=False)
@@ -230,6 +229,12 @@ class DuelGameView(discord.ui.View):
                 await interaction.followup.send(embed=embed, ephemeral=False)
         except Exception as e:
             logger.error(f"Error sending duel result: {e}")
+            # Fallback: send result in channel if interaction failed (e.g. Unknown interaction)
+            try:
+                if interaction.channel and isinstance(interaction.channel, discord.TextChannel):
+                    await interaction.channel.send(embed=embed)
+            except Exception as e2:
+                logger.error(f"Error sending duel result fallback: {e2}")
         
     async def on_timeout(self) -> None:
         embed = discord.Embed(
