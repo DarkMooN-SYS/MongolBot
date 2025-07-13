@@ -72,6 +72,9 @@ extensions = [
     'cogs.economy.serverbank',
     'cogs.economy.vip',
 
+    # Shop Cogs
+    'cogs.shop.shop',
+
     # Games Cogs
     'cogs.games.game',
     'cogs.games.lottery',

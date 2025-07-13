@@ -1,0 +1,451 @@
+{
+    "categories": {
+        "tools": {
+            "name": "🔧 Энгийн хэрэгсэл",
+            "description": "Энгийн хэрэглэгчдэд зориулсан хамгаалалт, автоматжуулалт, туслах хэрэгслүүд.",
+            "emoji": "🔧"
+        },
+        "boosters": {
+            "name": "⚡ Нэмэгдүүлэгч",
+            "description": "Түр хугацаанд орлого, банкны хүү, боломжийг нэмэгдүүлэх тусгай зүйлс.",
+            "emoji": "⚡"
+        },
+        "premium": {
+            "name": "👑 VIP зүйлс",
+            "description": "VIP эрхтэй хэрэглэгчдэд зориулсан онцгой, өндөр үнэтэй, автомат болон хямдралтай зүйлс.",
+            "emoji": "👑"
+        },
+        "bundle": {
+            "name": "📦 Улирлын багц",
+            "description": "Зөвхөн тодорхой улиралд, хязгаарлагдмал хугацаанд авах боломжтой тусгай багцууд.",
+            "emoji": "📦"
+        }
+    },
+    
+    "items": {
+        "rob_protection": {
+            "name": "Хулгайгаас хамгаалах",
+            "description": "Энэ зүйлийг авснаар 7 хоногийн турш таныг хулгайлах боломжгүй болно.",
+            "price": 8000000,
+            "category": "tools",
+            "emoji": "🛡️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 7
+            }
+        },
+        
+        "mega_protection": {
+            "name": "Мега хамгаалалт",
+            "description": "30 хоногийн турш таныг хулгайлах оролдлого бүр бүтэлгүйтнэ.",
+            "price": 25000000,
+            "category": "tools",
+            "emoji": "🛡️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 30
+            }
+        },
+        
+        "money_printer": {
+            "name": "Мөнгө хэвлэгч",
+            "description": "7 хоногийн турш 6 цаг тутамд автоматаар 100,000₮ олж авна.",
+            "price": 35000000,
+            "category": "premium",
+            "emoji": "🖨️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_money": 100000,
+                "interval_hours": 6,
+                "duration_days": 7
+            }
+        },
+        
+        "auto_claim_helper": {
+            "name": "Автомат цуглуулагч",
+            "description": "7 хоногийн турш өдөр бүрийн шагналыг гараар авахгүйгээр автоматаар авна.",
+            "price": 10000000,
+            "category": "tools",
+            "emoji": "🤖",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_claim_daily": true,
+                "duration_days": 7
+            }
+        },
+        "camera_protection": {
+            "name": "Хяналтын камер",
+            "description": "3 хоногийн турш таныг хулгайлах оролдлого бүр бүтэлгүйтнэ.",
+            "price": 3500000,
+            "category": "tools",
+            "emoji": "📷",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 3
+            }
+        },
+        "safe_box": {
+            "name": "Мөнгөний сейф",
+            "description": "14 хоногийн турш таныг хулгайлах боломжгүй болгоно.",
+            "price": 16000000,
+            "category": "tools",
+            "emoji": "🗄️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 14
+            }
+        },
+        "quick_collector": {
+            "name": "Хурдан цуглуулагч",
+            "description": "3 хоногийн турш өдөр бүрийн шагналыг автоматаар авна.",
+            "price": 4000000,
+            "category": "tools",
+            "emoji": "⚡",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_claim_daily": true,
+                "duration_days": 3
+            }
+        },
+        "mini_printer": {
+            "name": "Хурдан мөнгө хэвлэгч",
+            "description": "5 хоногийн турш 3 цаг тутамд автоматаар 50,000₮ олж авна.",
+            "price": 9000000,
+            "category": "tools",
+            "emoji": "🖨️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_money": 50000,
+                "interval_hours": 3,
+                "duration_days": 5
+            }
+        },
+        "limited_protection": {
+            "name": "Хязгаарлагдмал хамгаалалт",
+            "description": "1 хоногийн турш таныг хулгайлах боломжгүй болгоно.",
+            "price": 1200000,
+            "category": "tools",
+            "emoji": "🔒",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 1
+            }
+        },
+
+        "hack_protection": {
+            "name": "Хакерын хамгаалалт",
+            "description": "3 хоногийн турш таныг хакердах боломжгүй болгоно.",
+            "price": 10000000,
+            "category": "tools",
+            "emoji": "🖥️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "hack_protection": true,
+                "duration_days": 3
+            }
+        },
+        
+        "income_booster": {
+            "name": "Орлогын нэмэгдүүлэгч",
+            "description": "5 хоногийн турш 12 цаг тутамд автоматаар 120,000₮ олж авна.",
+            "price": 9000000,
+            "category": "boosters",
+            "emoji": "💸",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_money": 120000,
+                "interval_hours": 12,
+                "duration_days": 5
+            }
+        },
+        "quick_income": {
+            "name": "Хурдан орлого",
+            "description": "3 хоногийн турш 6 цаг тутамд автоматаар 60,000₮ олж авна.",
+            "price": 6000000,
+            "category": "boosters",
+            "emoji": "💰",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_money": 60000,
+                "interval_hours": 6,
+                "duration_days": 3
+            }
+        },
+        "quick_discount": {
+            "name": "Хурдан хямдрал",
+            "description": "1 хоногийн турш бүх зүйлсийг 5% хямд авах боломжтой.",
+            "price": 2000000,
+            "category": "boosters",
+            "emoji": "🏷️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "shop_discount": 0.05,
+                "duration_days": 1
+            }
+        },
+        "quick_collector_boost": {
+            "name": "Хурдан цуглуулагч",
+            "description": "2 хоногийн турш өдөр бүрийн шагналыг автоматаар авна.",
+            "price": 3000000,
+            "category": "boosters",
+            "emoji": "⚡",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_claim_daily": true,
+                "duration_days": 2
+            }
+        },
+        "safe_booster": {
+            "name": "Хурдан хамгаалалт",
+            "description": "5 хоногийн турш таныг хулгайлах боломжгүй болгоно.",
+            "price": 7000000,
+            "category": "boosters",
+            "emoji": "🛡️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 5
+            }
+        },
+        "mini_printer_boost": {
+            "name": "Хурдан мөнгө хэвлэгч",
+            "description": "4 хоногийн турш 4 цаг тутамд автоматаар 40,000₮ олж авна.",
+            "price": 5000000,
+            "category": "boosters",
+            "emoji": "🖨️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_money": 40000,
+                "interval_hours": 4,
+                "duration_days": 4
+            }
+        },
+        
+        "random_box": {
+            "name": "Санамсаргүй хайрцаг",
+            "description": "Нээхэд 1 удаа санамсаргүй зүйл эсвэл мөнгө авах боломжтой.",
+            "price": 5000000,
+            "category": "fun",
+            "emoji": "🎁",
+            "stock": -1,
+            "purchasable": false,
+            "effects": {
+                "random_box": true,
+                "uses": 1
+            }
+        },
+        
+        "shop_discount": {
+            "name": "Дэлгүүрийн хямдрал",
+            "description": "5 хоногийн турш дэлгүүрийн бүх зүйлсийг 20% хямд үнээр авах боломжтой.",
+            "price": 20000000,
+            "category": "premium",
+            "emoji": "🏷️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "shop_discount": 0.2,
+                "duration_days": 5
+            }
+        },
+        
+        "shop_discount_5": {
+            "name": "Дэлгүүрийн хямдрал 5%",
+            "description": "3 хоногийн турш дэлгүүрийн бүх зүйлсийг 5% хямд үнээр авах боломжтой.",
+            "price": 5000000,
+            "category": "premium",
+            "emoji": "🏷️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "shop_discount": 0.05,
+                "duration_days": 3
+            }
+        },
+        
+        "shop_discount_10_7": {
+            "name": "Дэлгүүрийн хямдрал 10%",
+            "description": "7 хоногийн турш дэлгүүрийн бүх зүйлсийг 10% хямд үнээр авах боломжтой.",
+            "price": 20000000,
+            "category": "premium",
+            "emoji": "🏷️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "shop_discount": 0.1,
+                "duration_days": 7
+            }
+        },
+        
+        "shop_discount_15_14": {
+            "name": "Дэлгүүрийн хямдрал 15%",
+            "description": "14 хоногийн турш дэлгүүрийн бүх зүйлсийг 15% хямд үнээр авах боломжтой.",
+            "price": 35000000,
+            "category": "premium",
+            "emoji": "🏷️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "shop_discount": 0.15,
+                "duration_days": 14
+            }
+        }
+        ,
+        "vip_auto_collector": {
+            "name": "VIP автомат цуглуулагч",
+            "description": "VIP эрхтэй хэрэглэгч 10 хоногийн турш өдөр бүрийн шагналыг автоматаар авна.",
+            "price": 25000000,
+            "category": "premium",
+            "emoji": "🤖",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_claim_daily": true,
+                "duration_days": 10
+            }
+        },
+        "vip_money_printer": {
+            "name": "VIP мөнгө хэвлэгч",
+            "description": "VIP эрхтэй хэрэглэгч 10 хоногийн турш 4 цаг тутамд автоматаар 150,000₮ олж авна.",
+            "price": 60000000,
+            "category": "premium",
+            "emoji": "🖨️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "auto_money": 150000,
+                "interval_hours": 4,
+                "duration_days": 10
+            }
+        },
+
+        "vip_rob_protection": {
+            "name": "VIP хамгаалалт",
+            "description": "VIP эрхтэй хэрэглэгч 21 хоногийн турш хулгайлах боломжгүй болно.",
+            "price": 40000000,
+            "category": "premium",
+            "emoji": "🛡️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 21
+            }
+        },
+        "vip_shop_discount_25": {
+            "name": "VIP дэлгүүрийн хямдрал 25%",
+            "description": "VIP эрхтэй хэрэглэгч 7 хоногийн турш дэлгүүрийн бүх зүйлсийг 25% хямд үнээр авах боломжтой.",
+            "price": 50000000,
+            "category": "premium",
+            "emoji": "🏷️",
+            "stock": -1,
+            "purchasable": true,
+            "effects": {
+                "shop_discount": 0.25,
+                "duration_days": 7
+            }
+        }
+    },
+    
+    "limited_items": {
+        "summer_bundle": {
+            "name": "🌞 Зуны тусгай багц",
+            "description": "Зуны улиралд авах боломжтой багц. Мега хамгаалалт, автомат цуглуулагч, мөнгө хэвлэгч зэрэг багтсан. Хязгаарлагдмал хугацаанд авах боломжтой.",
+            "price": 65000000,
+            "original_price": 67000000,
+            "category": "bundle",
+            "emoji": "🌞",
+            "stock": 25,
+            "auto_season": "summer",
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 45,
+                "auto_claim_daily": true,
+                "auto_money": 200000,
+                "interval_hours": 4,
+                "shop_discount": 0.15,
+                "duration_days_discount": 14
+            }
+        },
+        "spring_bundle": {
+            "name": "🌸 Хаврын тусгай багц",
+            "description": "Хаврын улиралд авах боломжтой багц. Хүүгийн нэмэгдүүлэгч, автомат цуглуулагч, санамсаргүй хайрцаг багтсан. Хязгаарлагдмал хугацаанд авах боломжтой.",
+            "price": 57000000,
+            "original_price": 59000000,
+            "category": "bundle",
+            "emoji": "🌸",
+            "stock": 25,
+            "auto_season": "spring",
+            "purchasable": true,
+            "effects": {
+                "duration_days": 21,
+                "auto_claim_daily": true,
+                "random_box": true,
+                "uses": 2,
+                "auto_money": 120000,
+                "interval_hours": 8
+            }
+        },
+        "autumn_bundle": {
+            "name": "🍂 Намрын тусгай багц",
+            "description": "Намрын улиралд авах боломжтой багц. Cooldown багасгагч, мөнгө хэвлэгч, хулгайгаас хамгаалах багтсан. Хязгаарлагдмал хугацаанд авах боломжтой.",
+            "price": 62000000,
+            "original_price": 64000000,
+            "category": "bundle",
+            "emoji": "🍂",
+            "stock": 25,
+            "auto_season": "autumn",
+            "purchasable": true,
+            "effects": {
+                "duration_days": 21,
+                "auto_money": 150000,
+                "interval_hours": 4,
+                "rob_protection": true,
+                "duration_days_rob": 14,
+                "auto_claim_daily": true
+            }
+        },
+        "winter_bundle": {
+            "name": "❄️ Өвлийн тусгай багц",
+            "description": "Өвлийн улиралд авах боломжтой багц. Мега хамгаалалт, дэлгүүрийн хямдрал 15%, автомат цуглуулагч багтсан. Хязгаарлагдмал хугацаанд авах боломжтой.",
+            "price": 70000000,
+            "original_price": 72500000,
+            "category": "bundle",
+            "emoji": "❄️",
+            "stock": 25,
+            "auto_season": "winter",
+            "purchasable": true,
+            "effects": {
+                "rob_protection": true,
+                "duration_days": 45,
+                "shop_discount": 0.25,
+                "duration_days_discount": 21,
+                "auto_claim_daily": true,
+                "auto_money": 180000,
+                "interval_hours": 5
+            }
+        }
+    }
+}
