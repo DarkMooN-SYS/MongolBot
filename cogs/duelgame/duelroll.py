@@ -53,41 +53,39 @@ class DuelChallengeView(discord.ui.View):
         if interaction.user.id != self.target_id:
             await interaction.response.send_message("❌ Зөвхөн сорилт авсан хүн л татгалзаж болно!", ephemeral=True)
             return
-            
+
         embed = discord.Embed(
             title="❌ Дуэл Татгалзлаа",
             description=f"<@{self.target_id}> дуэлийг татгалзлаа. Мөнгө буцаагдлаа.",
             color=discord.Color.red()
         )
-        
-        # Татгалзсан тохиолдолд мөнгө буцаах
+
+        # Татгалзсан тохиолдолд зөвхөн өөрийнх нь мөнгийг буцаах
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
-                await bank_cog.update_balance('bank', self.challenger_id, self.bet_amount)  # type: ignore
                 await bank_cog.update_balance('bank', self.target_id, self.bet_amount)  # type: ignore
         except Exception as e:
             logger.error(f"Error refunding money on decline: {e}")
-        
+
         await interaction.response.edit_message(embed=embed, view=None)
         self.stop()
-        
+
     async def on_timeout(self) -> None:
         embed = discord.Embed(
             title="⏰ Хугацаа дууслаа",
             description="Дуэлийн сорилт хүлээх хугацаа дууслаа.",
             color=discord.Color.dark_grey()
         )
-        
-        # Timeout үед мөнгө буцаах
+
+        # Timeout үед зөвхөн өөрийнх нь мөнгийг буцаах
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
-                await bank_cog.update_balance('bank', self.challenger_id, self.bet_amount)  # type: ignore
                 await bank_cog.update_balance('bank', self.target_id, self.bet_amount)  # type: ignore
         except Exception as e:
             logger.error(f"Error refunding money on challenge timeout: {e}")
-        
+
         try:
             # Get the original message and edit it
             if self.message is not None:
@@ -232,7 +230,7 @@ class DuelGameView(discord.ui.View):
             color=discord.Color.dark_grey()
         )
         
-        # Timeout үед мөнгө буцаах
+        # Timeout үед зөвхөн өөрийнх нь мөнгийг буцаах
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
