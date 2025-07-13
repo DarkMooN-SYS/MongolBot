@@ -158,7 +158,7 @@ class Shop(commands.Cog):
         
         return embed
 
-    @commands.command(name='shop')
+    @commands.command(name='shop!!!!!')
     async def shop(self, ctx: commands.Context, category: str = "all") -> None:
         """Дэлгүүрийг харах"""
         if not await is_channel_enabled(ctx.guild.id if ctx.guild else 0, ctx.channel.id):
@@ -173,7 +173,7 @@ class Shop(commands.Cog):
             logger.error(f"Shop командад алдаа: {e}")
             await ctx.send("⚠️ Дэлгүүрийг ачаалахад алдаа гарлаа!")
 
-    @commands.command(name='buy')
+    @commands.command(name='buy!!!!!')
     async def buy_item(self, ctx: commands.Context, item_id: str, quantity: int = 1) -> None:
         """Зүйл худалдан авах"""
         if not await is_channel_enabled(ctx.guild.id if ctx.guild else 0, ctx.channel.id):
@@ -327,7 +327,7 @@ class Shop(commands.Cog):
             logger.error(f"Purchase процессд алдаа: {e}")
             return False
 
-    @commands.command(name='inventory', aliases=['inv'])
+    @commands.command(name='inventory!!!!!', aliases=['inv!!!!!'])
     async def inventory(self, ctx: commands.Context) -> None:
         """Хэрэглэгчийн inventory харах"""
         if not await is_channel_enabled(ctx.guild.id if ctx.guild else 0, ctx.channel.id):
