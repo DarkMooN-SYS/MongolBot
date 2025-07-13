@@ -661,7 +661,7 @@ class Bank(commands.Cog):
         await self.conn.commit()
         logger.info("✅ Хадгаламжийн хүү тооцооллоо!")
 
-    @tasks.loop(hours=1)
+    @tasks.loop(minutes=30)
     async def process_overdue_loans(self) -> None:
         """Зээлийн хугацаа хэтэрсэн хэрэглэгчдийг 1 цаг тутамд автоматаар шалгаж, мөнгийг суутгана."""
         try:
@@ -671,12 +671,14 @@ class Bank(commands.Cog):
                 for row in rows:
                     user_id, due_date_str, loan_balance, perma_block = row
                     if perma_block == 1:
+                        logger.info(f"User {user_id} is perma blocked, skipping.")
                         continue
                     try:
-                        due_date = datetime.strptime(due_date_str, "%Y-%m-%d")
-                    except Exception:
+                        due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+                    except Exception as date_error:
+                        logger.warning(f"User {user_id} due_date parse error: {date_error}")
                         continue
-                    if due_date < datetime.now():
+                    if due_date < datetime.now().date():
                         # --- Банк, халаас, хадгаламжийн одоогийн үлдэгдлийг авах ---
                         bank_balance = 0
                         economy_balance = 0
@@ -693,30 +695,37 @@ class Bank(commands.Cog):
                             r = await c.fetchone()
                             if r and r[0] is not None:
                                 savings_balance = int(r[0])
-                        
+
+                        # --- Хэрвээ бүх үлдэгдэл 0 бол алгасана ---
+                        if bank_balance == 0 and economy_balance == 0 and savings_balance == 0:
+                            logger.info(f"User {user_id} has zero balances, skipping deduction.")
+                            await conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
+                            await conn.commit()
+                            continue
+
                         # --- Зөвхөн эерэг үлдэгдэлтэй данснаас суутгах ---
                         remaining_loan = loan_balance
                         deduct_from_bank = 0
                         deduct_from_economy = 0
                         deduct_from_savings = 0
-                        
+
                         # Эхлээд банкнаас суутгах
                         if bank_balance > 0 and remaining_loan > 0:
                             deduct_from_bank = min(bank_balance, remaining_loan)
                             remaining_loan -= deduct_from_bank
-                        
                         # Дараа нь халааснаас суутгах
                         if economy_balance > 0 and remaining_loan > 0:
                             deduct_from_economy = min(economy_balance, remaining_loan)
                             remaining_loan -= deduct_from_economy
-                        
                         # Эцэст хадгаламжаас суутгах
                         if savings_balance > 0 and remaining_loan > 0:
                             deduct_from_savings = min(savings_balance, remaining_loan)
                             remaining_loan -= deduct_from_savings
-                        
+
                         # Нийт суутгасан дүн
                         deducted = deduct_from_bank + deduct_from_economy + deduct_from_savings
+                        logger.info(f"User {user_id}: Deducted {deducted} (Bank: {deduct_from_bank}, Economy: {deduct_from_economy}, Savings: {deduct_from_savings})")
+
                         # update_balance-ийг дуудахын оронд шууд UPDATE хийнэ
                         if deduct_from_bank > 0:
                             await conn.execute("UPDATE bank SET balance = balance - ? WHERE user_id = ?", (deduct_from_bank, user_id))
@@ -729,7 +738,7 @@ class Bank(commands.Cog):
                         # --- Одоо perma_block-г 1 болгож тэмдэглэнэ ---
                         await conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
                         await conn.commit()
-                        
+
                         # --- Хэрэглэгчдэд DM мэдэгдэл илгээх ---
                         try:
                             user = self.bot.get_user(user_id)
