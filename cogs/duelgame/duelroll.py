@@ -60,10 +60,11 @@ class DuelChallengeView(discord.ui.View):
             color=discord.Color.red()
         )
 
-        # Татгалзсан тохиолдолд зөвхөн өөрийнх нь мөнгийг буцаах
+        # Татгалзсан тохиолдолд challenger болон target-д мөнгийг буцаах
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
+                await bank_cog.update_balance('bank', self.challenger_id, self.bet_amount)  # type: ignore
                 await bank_cog.update_balance('bank', self.target_id, self.bet_amount)  # type: ignore
         except Exception as e:
             logger.error(f"Error refunding money on decline: {e}")
@@ -78,16 +79,16 @@ class DuelChallengeView(discord.ui.View):
             color=discord.Color.dark_grey()
         )
 
-        # Timeout үед зөвхөн өөрийнх нь мөнгийг буцаах
+        # Timeout үед challenger болон target-д мөнгийг буцаах
         try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
+                await bank_cog.update_balance('bank', self.challenger_id, self.bet_amount)  # type: ignore
                 await bank_cog.update_balance('bank', self.target_id, self.bet_amount)  # type: ignore
         except Exception as e:
             logger.error(f"Error refunding money on challenge timeout: {e}")
 
         try:
-            # Get the original message and edit it
             if self.message is not None:
                 await self.message.edit(embed=embed, view=None)
         except Exception:
@@ -297,7 +298,7 @@ class RollDuel(commands.Cog):
             return
         challenger = ctx.author
         
-        # Өөрөө өөртөө сорилт өгөх боломжгүй
+        # Өөрөө өөртөө сорилт авгах боломжгүй
         if target.id == challenger.id:
             embed = discord.Embed(
                 title="❌ Алдаа!",
@@ -440,14 +441,8 @@ class RollDuel(commands.Cog):
         self.active_duels.pop(challenger.id, None)
         self.active_duels.pop(target.id, None)
         
-        # Хэрэв зөвшөөрөөгүй бол мөнгө буцаах
-        if not view.accepted:
-            try:
-                if hasattr(bank_cog, 'update_balance'):
-                    await bank_cog.update_balance('bank', challenger.id, bet_amount_int)  # type: ignore
-                    await bank_cog.update_balance('bank', target.id, bet_amount_int)  # type: ignore
-            except Exception as e:
-                logger.error(f"Error refunding money: {e}")
+        # Хэрэв зөвшөөрөөгүй бол мөнгө буцаах: Татгалзах товч дарсан үед буцаалт аль хэдийн хийгдсэн тул дахин буцаахгүй
+        # Refund is already handled in decline_duel, so do not refund again here
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(RollDuel(bot))
