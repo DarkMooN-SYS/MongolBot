@@ -221,7 +221,14 @@ class DuelGameView(discord.ui.View):
             logger.error(f"Error in duel finish: {e}")
             embed.add_field(name="❌ Алдаа:", value="Мөнгө шилжүүлэхэд алдаа гарлаа!", inline=False)
             
-        await interaction.response.edit_message(embed=embed, view=None)
+        # Try to edit the interaction response, fallback to followup if already responded
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.edit_message(embed=embed, view=None)
+            else:
+                await interaction.followup.send(embed=embed, ephemeral=False)
+        except Exception as e:
+            logger.error(f"Error sending duel result: {e}")
         
     async def on_timeout(self) -> None:
         embed = discord.Embed(
