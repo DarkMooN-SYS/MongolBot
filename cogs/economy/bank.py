@@ -39,6 +39,7 @@ class Bank(commands.Cog):
         self.bot = bot
         self.vip_cog = vip_cog
         self.conn: Optional[aiosqlite.Connection] = None
+        self.db_lock = asyncio.Lock()  # DB write lock
         self.bot.loop.create_task(self.setup_database())
         self.savings_interest_rate = 0.02  # 14 хоног тутмын хадгаламжийн хүү (2%)
         self.loan_interest_rate = 0.05  # 7 хоног тутмын зээлийн хүү (5%)
@@ -92,35 +93,38 @@ class Bank(commands.Cog):
             raise RuntimeError("Database connection is not established!")
 
     async def get_balance(self, user_id: int, table_name: str) -> int:
-        async with aiosqlite.connect('data/economy.db') as conn:
-            async with conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
+        await self.ensure_connection()
+        if self.conn is None:
+            raise RuntimeError("Database connection is not established!")
+        async with self.db_lock:
+            async with self.conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
                 result = await cursor.fetchone()
                 return int(result[0]) if result and result[0] is not None else 0
 
     async def update_balance(self, table_name: str, user_id: int, amount: int, date_column: Optional[str] = None, due_date: Optional[str] = None):
-        async with aiosqlite.connect('data/economy.db') as conn:
-            # Get current balance within the same connection
-            async with conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
+        await self.ensure_connection()
+        if self.conn is None:
+            raise RuntimeError("Database connection is not established!")
+        async with self.db_lock:
+            async with self.conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
                 result = await cursor.fetchone()
                 current_balance = int(result[0]) if result and result[0] is not None else 0
-            
             new_balance = current_balance + amount
             if new_balance < 0:
                 return current_balance
-            
             if date_column:
-                await conn.execute(f'''
+                await self.conn.execute(f'''
                     INSERT INTO {table_name} (user_id, balance, {date_column}, due_date)
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(user_id) DO UPDATE SET balance = ?, {date_column} = ?, due_date = COALESCE(?, due_date)
                 ''', (user_id, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date))
             else:
-                await conn.execute(f'''
+                await self.conn.execute(f'''
                     INSERT INTO {table_name} (user_id, balance)
                     VALUES (?, ?)
                     ON CONFLICT(user_id) DO UPDATE SET balance = ?
                 ''', (user_id, new_balance, new_balance))
-            await conn.commit()
+            await self.conn.commit()
             return new_balance
 
     async def get_max_loan_for_user(self, user_id: int) -> int:
@@ -664,9 +668,13 @@ class Bank(commands.Cog):
     @tasks.loop(minutes=30)
     async def process_overdue_loans(self) -> None:
         """Зээлийн хугацаа хэтэрсэн хэрэглэгчдийг 1 цаг тутамд автоматаар шалгаж, мөнгийг суутгана."""
+        await self.ensure_connection()
+        if self.conn is None:
+            logger.error("Database connection is not established!")
+            return
         try:
-            async with aiosqlite.connect('data/economy.db') as conn:
-                async with conn.execute("SELECT user_id, due_date, balance, perma_block FROM loans WHERE balance > 0 AND due_date IS NOT NULL") as cursor:
+            async with self.db_lock:
+                async with self.conn.execute("SELECT user_id, due_date, balance, perma_block FROM loans WHERE balance > 0 AND due_date IS NOT NULL") as cursor:
                     rows = await cursor.fetchall()
                 for row in rows:
                     user_id, due_date_str, loan_balance, perma_block = row
@@ -683,15 +691,15 @@ class Bank(commands.Cog):
                         bank_balance = 0
                         economy_balance = 0
                         savings_balance = 0
-                        async with conn.execute("SELECT balance FROM bank WHERE user_id=?", (user_id,)) as c:
+                        async with self.conn.execute("SELECT balance FROM bank WHERE user_id=?", (user_id,)) as c:
                             r = await c.fetchone()
                             if r and r[0] is not None:
                                 bank_balance = int(r[0])
-                        async with conn.execute("SELECT balance FROM economy WHERE user_id=?", (user_id,)) as c:
+                        async with self.conn.execute("SELECT balance FROM economy WHERE user_id=?", (user_id,)) as c:
                             r = await c.fetchone()
                             if r and r[0] is not None:
                                 economy_balance = int(r[0])
-                        async with conn.execute("SELECT balance FROM savings WHERE user_id=?", (user_id,)) as c:
+                        async with self.conn.execute("SELECT balance FROM savings WHERE user_id=?", (user_id,)) as c:
                             r = await c.fetchone()
                             if r and r[0] is not None:
                                 savings_balance = int(r[0])
@@ -699,8 +707,8 @@ class Bank(commands.Cog):
                         # --- Хэрвээ бүх үлдэгдэл 0 бол алгасана ---
                         if bank_balance == 0 and economy_balance == 0 and savings_balance == 0:
                             logger.info(f"User {user_id} has zero balances, skipping deduction.")
-                            await conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
-                            await conn.commit()
+                            await self.conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
+                            await self.conn.commit()
                             continue
 
                         # --- Зөвхөн эерэг үлдэгдэлтэй данснаас суутгах ---
@@ -728,16 +736,16 @@ class Bank(commands.Cog):
 
                         # update_balance-ийг дуудахын оронд шууд UPDATE хийнэ
                         if deduct_from_bank > 0:
-                            await conn.execute("UPDATE bank SET balance = balance - ? WHERE user_id = ?", (deduct_from_bank, user_id))
+                            await self.conn.execute("UPDATE bank SET balance = balance - ? WHERE user_id = ?", (deduct_from_bank, user_id))
                         if deduct_from_economy > 0:
-                            await conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (deduct_from_economy, user_id))
+                            await self.conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (deduct_from_economy, user_id))
                         if deduct_from_savings > 0:
-                            await conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (deduct_from_savings, user_id))
+                            await self.conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (deduct_from_savings, user_id))
                         if deducted > 0:
-                            await conn.execute("UPDATE loans SET balance = balance - ? WHERE user_id = ?", (deducted, user_id))
+                            await self.conn.execute("UPDATE loans SET balance = balance - ? WHERE user_id = ?", (deducted, user_id))
                         # --- Одоо perma_block-г 1 болгож тэмдэглэнэ ---
-                        await conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
-                        await conn.commit()
+                        await self.conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
+                        await self.conn.commit()
 
                         # --- Хэрэглэгчдэд DM мэдэгдэл илгээх ---
                         try:
