@@ -81,7 +81,7 @@ extensions = [
     'cogs.games.job',
     
     # Duel Games
-    'cogs.duelgame.duelroll',
+    #'cogs.duelgame.duelroll',
     
     
     # Server Cogs
