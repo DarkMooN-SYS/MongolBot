@@ -289,7 +289,7 @@ class Music(commands.Cog):
         self.queues = {}  # Guild бүрт тусдаа queue
         self.players_connected = set()  # Холбогдсон player-уудыг хадгалах
         self.guild_volumes = {}  # Guild тус бүрийн volume хадгалах
-        self.default_volume = 50  # Default volume 50%
+        self.default_volume = 1  # Default volume 50%
         
         # Auto-disconnect tracking
         self.last_activity = {}  # Guild-ийн сүүлийн идэвхжил
