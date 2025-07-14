@@ -5,6 +5,36 @@ from ..utils.database import get_async_db_context
 from ..utils.channel import is_channel_enabled
 
 class ServerBank(commands.Cog):
+    async def fix_if_exceeds_limit(self, server_id: int) -> None:
+        """If total balance exceeds MAX_LIMIT, reduce to MAX_LIMIT automatically."""
+        MAX_LIMIT = 100_000_000
+        async with get_async_db_context('serverbank') as conn:
+            async with conn.execute(
+                'SELECT SUM(balance) FROM server_bank WHERE server_id = ?',
+                (server_id,)
+            ) as cursor:
+                result = await cursor.fetchone()
+                current_total = result[0] if result and result[0] is not None else 0
+            if current_total > MAX_LIMIT:
+                # Reduce all owner balances proportionally, but for simplicity, set all to 0 except the smallest owner_id
+                async with conn.execute(
+                    'SELECT owner_id FROM server_bank WHERE server_id = ? ORDER BY owner_id ASC LIMIT 1',
+                    (server_id,)
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        main_owner = row[0]
+                        # Set all others to 0
+                        await conn.execute(
+                            'UPDATE server_bank SET balance = 0 WHERE server_id = ? AND owner_id != ?',
+                            (server_id, main_owner)
+                        )
+                        # Set main owner to MAX_LIMIT
+                        await conn.execute(
+                            'UPDATE server_bank SET balance = ? WHERE server_id = ? AND owner_id = ?',
+                            (MAX_LIMIT, server_id, main_owner)
+                        )
+                        await conn.commit()
     def __init__(self, bot: commands.Bot):
         self.bot: commands.Bot = bot
         self.bot.loop.create_task(self.setup())
@@ -35,7 +65,20 @@ class ServerBank(commands.Cog):
 
     async def update_balance(self, server_id: int, amount: int) -> None:
         # Update balance for only one owner (the one with the smallest owner_id)
+        MAX_LIMIT = 100_000_000
         async with get_async_db_context('serverbank') as conn:
+            # Get current total balance
+            async with conn.execute(
+                'SELECT SUM(balance) FROM server_bank WHERE server_id = ?',
+                (server_id,)
+            ) as cursor:
+                result = await cursor.fetchone()
+                current_total = result[0] if result and result[0] is not None else 0
+            # If adding would exceed max limit, cap the amount
+            if current_total + amount > MAX_LIMIT:
+                amount = MAX_LIMIT - current_total
+                if amount <= 0:
+                    return  # Already at or above max limit
             async with conn.execute(
                 'SELECT owner_id FROM server_bank WHERE server_id = ? ORDER BY owner_id ASC LIMIT 1',
                 (server_id,)
@@ -51,6 +94,7 @@ class ServerBank(commands.Cog):
 
     async def safe_withdraw(self, server_id: int, amount: int) -> bool:
         """Аюулгүй мөнгө гаргах - сөрөг үлдэгдэл үүсгэхгүй (зөвхөн нэг эзэмшигчийн мөрөнд)"""
+        MAX_LIMIT = 100_000_000
         async with get_async_db_context('serverbank') as conn:
             # Only check and update the row for the smallest owner_id
             async with conn.execute(
@@ -61,8 +105,10 @@ class ServerBank(commands.Cog):
                 if not row:
                     return False
                 owner_id, current_balance = row
+                # Withdraw only if current balance is enough and not negative
                 if current_balance < amount or current_balance - amount < 0:
                     return False
+                # No need to check max limit for withdraw, only for deposit
                 await conn.execute(
                     'UPDATE server_bank SET balance = balance - ? WHERE server_id = ? AND owner_id = ?',
                     (amount, server_id, owner_id)
@@ -71,7 +117,8 @@ class ServerBank(commands.Cog):
                 return True
 
     async def get_balance(self, server_id: int) -> int:
-        # Sum balance across all owners (shared bank)
+        # Automatically fix if exceeds limit
+        await self.fix_if_exceeds_limit(server_id)
         async with get_async_db_context('serverbank') as conn:
             async with conn.execute(
                 'SELECT SUM(balance) FROM server_bank WHERE server_id = ?',
