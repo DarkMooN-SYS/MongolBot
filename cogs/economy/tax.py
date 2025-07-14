@@ -1,4 +1,6 @@
 import asyncio
+import datetime
+from typing import Optional
 from ..utils.database import get_async_connection
 
 async def get_balance_from_table(user_id: int, table: str) -> int:
@@ -82,11 +84,37 @@ async def tax_all_users():
     await conn.close()
     print(f"Татварын тооцоо дууслаа. {len(users)} хэрэглэгчид шалгав. Нийт хасагдсан: {total_tax:,}₮")
 
+async def get_last_tax_date() -> Optional[datetime.datetime]:
+    conn = await get_async_connection('economy')
+    async with conn.execute("CREATE TABLE IF NOT EXISTS tax_log (id INTEGER PRIMARY KEY, last_date TEXT)"):
+        pass
+    async with conn.execute("SELECT last_date FROM tax_log WHERE id=1") as cursor:
+        row = await cursor.fetchone()
+    await conn.close()
+    if row and row[0]:
+        try:
+            return datetime.datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+    return None
+
+async def set_last_tax_date():
+    conn = await get_async_connection('economy')
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    await conn.execute("CREATE TABLE IF NOT EXISTS tax_log (id INTEGER PRIMARY KEY, last_date TEXT)")
+    await conn.execute("INSERT OR REPLACE INTO tax_log (id, last_date) VALUES (1, ?)" , (now,))
+    await conn.commit()
+    await conn.close()
+
 def start_tax_loop():
     async def tax_loop():
         while True:
-            await tax_all_users()
-            await asyncio.sleep(1440 * 60)  # 1440 минут = 24 цаг
+            last_date = await get_last_tax_date()
+            now = datetime.datetime.now()
+            if not last_date or (now - last_date).total_seconds() >= 86400:
+                await tax_all_users()
+                await set_last_tax_date()
+            await asyncio.sleep(3600)  # 1 цаг тутамд шалгана
     asyncio.create_task(tax_loop())
 
 # Bot-ыг ажиллуулах үед start_tax_loop() дуудаарай
