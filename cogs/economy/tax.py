@@ -86,7 +86,7 @@ def start_tax_loop():
     async def tax_loop():
         while True:
             await tax_all_users()
-            await asyncio.sleep(60)
+            await asyncio.sleep(1440 * 60)  # 1440 минут = 24 цаг
     asyncio.create_task(tax_loop())
 
 # Bot-ыг ажиллуулах үед start_tax_loop() дуудаарай
