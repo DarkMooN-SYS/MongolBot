@@ -212,11 +212,16 @@ class MoneyGiveawayModal(discord.ui.Modal):
 
         async def enter_giveaway_callback(interaction: discord.Interaction) -> None:
             if interaction.user.id in participants:
-                await interaction.response.send_message("⚠️ Та giveaway-д аль хэдийн орсон байна!", ephemeral=True)
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("⚠️ Та giveaway-д аль хэдийн орсон байна!", ephemeral=True)
+                else:
+                    await interaction.followup.send("⚠️ Та giveaway-д аль хэдийн орсон байна!", ephemeral=True)
             else:
                 # Эхлээд response илгээх
-                await interaction.response.send_message("💰 Та мөнгөн шагналын giveaway-д оролцлоо!", ephemeral=True)
-                
+                if not interaction.response.is_done():
+                    await interaction.response.send_message("💰 Та мөнгөн шагналын giveaway-д оролцлоо!", ephemeral=True)
+                else:
+                    await interaction.followup.send("💰 Та мөнгөн шагналын giveaway-д оролцлоо!", ephemeral=True)
                 # Дараа нь participants-д нэмж embed update хийх
                 participants.add(interaction.user.id)
                 participant_field_index = 4 if not (self.is_owner_giveaway and hasattr(self, 'requirement') and self.requirement.value) else 5
