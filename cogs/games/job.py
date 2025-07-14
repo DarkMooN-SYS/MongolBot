@@ -7,7 +7,7 @@ import random
 import asyncio
 import time
 import json
-from typing import Optional, Any
+from typing import Optional
 
 class Job(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -160,6 +160,13 @@ class Job(commands.Cog):
         Хак командын 1 минутын delay болон мөнгө шилжүүлэх логик.
         """
         await asyncio.sleep(60)  # 1 минут хүлээнэ
+        # --- Хак хамгаалалт effect шалгах ---
+        from cogs.utils.shop_utils import is_hack_protected
+        if self.conn is not None and await is_hack_protected(self.conn, target_id):
+            user = ctx.bot.get_user(target_id)
+            name = user.display_name if user else str(target_id)
+            await ctx.send(f"🖥️ **{name}** хакерын хамгаалалт идэвхтэй тул хакдах боломжгүй!")
+            return
         target_bank_balance = await self.get_bank_balance(target_id)
         if target_bank_balance <= 0:
             user = ctx.bot.get_user(target_id)
@@ -180,6 +187,13 @@ class Job(commands.Cog):
         Банк хак командын 1 минутын delay болон мөнгө шилжүүлэх логик.
         """
         await asyncio.sleep(60)  # 1 минут хүлээнэ
+        # --- Хак хамгаалалт effect шалгах ---
+        from cogs.utils.shop_utils import is_hack_protected
+        if self.conn is not None and await is_hack_protected(self.conn, target_id):
+            user = ctx.bot.get_user(target_id)
+            name = user.display_name if user else str(target_id)
+            await ctx.send(f"🖥️ **{name}** хакерын хамгаалалт идэвхтэй тул банк хакдах боломжгүй!")
+            return
         target_bank_balance = await self.get_bank_balance(target_id)
         if target_bank_balance <= 0:
             user = ctx.bot.get_user(target_id)
@@ -603,6 +617,10 @@ class Job(commands.Cog):
     async def rob(self, ctx: commands.Context, target: discord.Member) -> None:
         is_owner = await self.bot.is_owner(ctx.author)
         robber_id, target_id = ctx.author.id, target.id
+        from cogs.utils.shop_utils import is_rob_protected
+        if self.conn is not None and await is_rob_protected(self.conn, target_id):
+            await ctx.send(f"🛡️ {target.display_name} хулгайгаас хамгаалалт идэвхтэй тул дээрэмдэх боломжгүй!")
+            return
         if is_owner and self.owner_bypass_enabled:
             target_balance = await self.get_balance(target_id)
             robber_balance = await self.get_balance(robber_id)
@@ -617,7 +635,7 @@ class Job(commands.Cog):
             await self.update_balance(robber_id, stolen_amount)
             await self.update_balance(target_id, -stolen_amount)
             await ctx.send(f"💰 {ctx.author.display_name} {target.display_name}-аас {stolen_amount:,}₮ хулгайллаа! (Owner bypass)")
-            await self.add_xp(robber_id, 20)
+            await self.add_xp(robber_id, 70)
             return
         """
         Хэрэглэгч өөр нэгэн хэрэглэгчийг дээрэмдэх команд.
@@ -662,7 +680,7 @@ class Job(commands.Cog):
             await self.update_balance(robber_id, stolen_amount)
             await self.update_balance(target_id, -stolen_amount)
             await ctx.send(f"💰 {ctx.author.display_name} {target.display_name}-аас {stolen_amount:,}₮ хулгайллаа!")
-            await self.add_xp(robber_id, 20)
+            await self.add_xp(robber_id, 70)
         else:
             # Дээрэм амжилтгүй болсон тохиолдолд хэрэглэгчийн үлдэгдлийн 10%-ийг торгууль болгон авна
             penalty = max(int(robber_balance * 0.1), 1000)  # Хамгийн багадаа 1000₮
@@ -676,6 +694,10 @@ class Job(commands.Cog):
     async def rob_bank(self, ctx: commands.Context, target: discord.Member) -> None:
         is_owner = await self.bot.is_owner(ctx.author)
         robber_id, target_id = ctx.author.id, target.id
+        from cogs.utils.shop_utils import is_rob_protected
+        if self.conn is not None and await is_rob_protected(self.conn, target_id):
+            await ctx.send(f"🛡️ {target.display_name}-ын банк хулгайгаас хамгаалалт идэвхтэй тул дээрэмдэх боломжгүй!")
+            return
         if is_owner and self.owner_bypass_enabled:
             target_bank = await self.get_bank_balance(target_id)
             if target_bank <= 0:
@@ -720,7 +742,7 @@ class Job(commands.Cog):
         await self.update_bank_balance(robber_id, stolen_amount)
         await self.update_bank_balance(target_id, -stolen_amount)
         await self.update_cooldown(robber_id, "rob", cooldown_time)
-        await self.add_xp(robber_id, 30)
+        await self.add_xp(robber_id, 70)
         await ctx.send(f"🏦 {ctx.author.display_name} {target.display_name}-ын банкнаас {stolen_amount:,}₮ дээрэмдлээ!")
 
     # ----------------- Хак хийх команд group -----------------
@@ -755,7 +777,6 @@ class Job(commands.Cog):
             await ctx.send(f"🛡️ **{target.display_name}** хамгаалагдсан тул хакдах боломжгүй!")
             return
 
-        is_vip = await self.check_vip(hacker_id)
         cooldown = await self.get_cooldown(hacker_id, "hack")
 
         status = await self.get_user_status_data(hacker_id)
@@ -773,7 +794,7 @@ class Job(commands.Cog):
             await self.update_cooldown(hacker_id, "hack", cooldown_time)
             await ctx.send(f"⏳ Хак эхэллээ, 1 минутын дараа хакдах болно!")
             asyncio.create_task(self.hack_with_delay(ctx, hacker_id, target_id, percent))
-            await self.add_xp(hacker_id, 25)
+            await self.add_xp(hacker_id, 80)
         else:
             await self.update_cooldown(hacker_id, "hack", cooldown_time)
             # Амжилтгүй бол торгууль төлнө
@@ -806,7 +827,7 @@ class Job(commands.Cog):
                 return
             await ctx.send(f"⏳ Хадгаламж хак эхэллээ, 1 минутын дараа хакдах болно! (Owner bypass)")
             asyncio.create_task(self.hack_savings_with_delay(ctx, hacker_id, target_id, percent))
-            await self.add_xp(hacker_id, 40)
+            await self.add_xp(hacker_id, 80)
             return
         """
         Хэрэглэгч банкны хадгаламжийг хакдах команд (!hack save @user)
@@ -861,7 +882,7 @@ class Job(commands.Cog):
         await self.update_cooldown(hacker_id, "hack", cooldown_time)
         await ctx.send(f"⏳ Хадгаламж хак эхэллээ, 1 минутын дараа хакдах болно!")
         asyncio.create_task(self.hack_savings_with_delay(ctx, hacker_id, target_id, percent))
-        await self.add_xp(hacker_id, 40)
+        await self.add_xp(hacker_id, 80)
 
     async def hack_savings_with_delay(self, ctx: commands.Context, hacker_id: int, target_id: int, percent: float = 0.03) -> None:
         """
@@ -962,55 +983,55 @@ class Job(commands.Cog):
         Жишээ: !levelup @user rob_level 2
         """
         user_id = user.id
-        
+
         valid_types = ["level", "rob_level", "hack_level"]
         if level_type not in valid_types:
             await ctx.send(f"❌ Зөвшөөрөгдсөн level төрлүүд: `{', '.join(valid_types)}`")
             return
-        
-        if amount < 1 or amount > 50:
-            await ctx.send("❌ Level нэмэгдүүлэх хэмжээ 1-50 хооронд байх ёстой!")
+
+        if amount < 1 or amount > 1000:
+            await ctx.send("❌ Level утга 1-1000 хооронд байх ёстой!")
             return
-        
+
         if self.conn is None:
             await ctx.send("❌ Өгөгдлийн санд холбогдох боломжгүй!")
             return
-        
+
         try:
             # Хэрэглэгчийн бичлэг байгаа эсэхийг шалгах
             await self.conn.execute("""
                 INSERT OR IGNORE INTO job (user_id, level, rob_level, hack_level, xp, vip_expiry) 
                 VALUES (?, 1, 1, 1, 0, 0)
             """, (user_id,))
-            
+
             # Одоогийн level авах
             async with self.conn.execute(f"SELECT {level_type} FROM job WHERE user_id=?", (user_id,)) as cursor:
                 row = await cursor.fetchone()
             current_level = row[0] if row and row[0] is not None else 1
-            
-            # Level нэмэгдүүлэх
-            new_level = current_level + amount
+
+            # Level-г шууд шинэ утгаар нь set хийх
+            new_level = amount
             await self.conn.execute(f"""
                 UPDATE job SET {level_type} = ? WHERE user_id = ?
             """, (new_level, user_id))
             await self.conn.commit()
-            
+
             embed = discord.Embed(
-                title="⭐ Level нэмэгдлээ!",
+                title="⭐ Level шинэчлэгдлээ!",
                 description=f"**{user.display_name}**-ын **{level_type}** {current_level} → {new_level} боллоо!",
                 color=discord.Color.green()
             )
-            embed.add_field(name="Нэмэгдсэн хэмжээ", value=f"+{amount} level", inline=True)
+            embed.add_field(name="Шинэ утга", value=f"{new_level} level", inline=True)
             embed.add_field(name="Шинэ зэрэглэл", value=f"{self.get_rank_emoji(new_level)} {self.get_rank_name(new_level)}", inline=True)
-            
+
             await ctx.send(embed=embed)
-            
+
             # Хэрэглэгчид DM илгээх
             try:
-                await user.send(f"🎉 Таны **{level_type}** {amount} түвшинээр нэмэгдэж {new_level} боллоо! Ботын эзэн танд энэ урамшууллыг өгсөн байна!")
+                await user.send(f"🎉 Таны **{level_type}** шууд {new_level} болгож шинэчлэгдлээ! Ботын эзэн танд энэ урамшууллыг өгсөн байна!")
             except:
                 pass
-                    
+
         except Exception as e:
             await ctx.send(f"❌ Алдаа гарлаа: {str(e)}")
 
