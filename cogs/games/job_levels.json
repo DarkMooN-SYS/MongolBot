@@ -5,7 +5,7 @@
     "15": { "success": 0.55 },
     "20": { "percent": 0.03 },
     "25": { "cooldown": 3400, "success": 0.6 },
-    "30": { "percent": 0.035, "cooldown": 3000 }
+    "30": { "percent": 0.035, "cooldown": 1800 }
   },
   "HACK_LEVELS": {
     "5": { "success": 0.52 },
@@ -13,7 +13,7 @@
     "15": { "success": 0.55 },
     "20": { "percent": 0.03 },
     "25": { "cooldown": 82000, "success": 0.6 },
-    "30": { "percent": 0.035, "cooldown": 72000 }
+    "30": { "percent": 0.035, "cooldown": 43200 }
   },
   "DEFAULT_ROB": {
     "cooldown": 3600,

@@ -8,6 +8,7 @@ import os
 from dotenv import load_dotenv
 from cogs.utils import settings
 from datetime import datetime
+from cogs.economy.tax import start_tax_loop
 # MongolBot - Discord Bot
 
 # Load environment variables
@@ -157,6 +158,7 @@ async def load_cogs_and_sync():
 @bot.event
 async def on_ready():
     print(f"✅ {bot.user} амжилттай холбогдлоо!")  # Console-д харуулах
+    start_tax_loop()
     
     # Discord HTTP client rate limiting патч хийх
     if patch_discord_http(bot):
@@ -821,6 +823,7 @@ async def on_message(message: discord.Message):
                 sent = await admin.send(f"✉️ {message.author} (ID: {message.author.id}):\n{message.content}")
             # Store mapping for reply
             dm_chat_map[message.author.id] = sent.id
+        # Do NOT process commands in DM
         return
     # 2. If admin replies to a DM in their own DM channel
     if message.guild is None and message.author.id == DM_ADMIN_ID:
