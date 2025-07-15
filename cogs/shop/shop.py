@@ -77,6 +77,13 @@ class Shop(commands.Cog):
                 PRIMARY KEY (user_id, item_id)
             )
         """)
+        # Add last_auto_money_claim column if missing
+        # Correctly check for column existence
+        async with self.conn.execute("PRAGMA table_info(user_inventory)") as cursor:
+            info = await cursor.fetchall()
+        columns = [row[1] for row in info]
+        if "last_auto_money_claim" not in columns:
+            await self.conn.execute("ALTER TABLE user_inventory ADD COLUMN last_auto_money_claim TEXT")
         await self.conn.commit()
 
     async def ensure_connection(self) -> None:
@@ -285,21 +292,38 @@ class Shop(commands.Cog):
             await ctx.send("⚠️ Худалдан авахад алдаа гарлаа!")
 
     async def purchase_item(self, user_id: int, item_id: str, item: Dict[str, Any], quantity: int) -> bool:
-        """Зүйл худалдан авах процесс"""
+        """
+        Зүйл худалдан авах процесс.
+        - Хугацаа шалгах
+        - Inventory шинэчлэх
+        - Худалдан авалт хадгалах
+        - Эффект merge хийх
+        - Санхүүгийн төлбөр автоматаар хасах
+        - Хэрэглэгчид DM мэдэгдэл илгээх
+        """
         try:
             await self.ensure_connection()
             if self.conn is None:
                 return False
+
+            # ✅ Эхлээд хэрэглэгчийн мөнгө шалгах
+            total_price = item["price"] * quantity
+            async with self.conn.execute("SELECT balance FROM economy WHERE user_id = ?", (user_id,)) as cursor:
+                row = await cursor.fetchone()
+            if not row or row[0] < total_price:
+                return False  # Мөнгөгүй бол худалдаа хийгдэхгүй
+
+            # ✅ Хугацаа шалгах
             purchase_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             expiry_date = None
-            # Хугацаатай зүйл бол
             if "duration_days" in item.get("effects", {}):
                 expiry = datetime.now() + timedelta(days=item["effects"]["duration_days"])
                 expiry_date = expiry.strftime("%Y-%m-%d %H:%M:%S")
-            
-            # Inventory-д нэмэх
+
+            # ✅ Effects json болгож хөрвүүлэх
             effects_json = json.dumps(item.get("effects", {}))
-            # Merge effects if already exists
+
+            # ✅ Inventory дотор өмнө нь байгаа эсэхийг шалгах ба merge хийх
             async with self.conn.execute("SELECT effects FROM user_inventory WHERE user_id=? AND item_id=?", (user_id, item_id)) as cursor:
                 row = await cursor.fetchone()
             if row and row[0]:
@@ -309,23 +333,48 @@ class Shop(commands.Cog):
                     merged_effects = {**existing_effects, **new_effects}
                     effects_json = json.dumps(merged_effects)
                 except Exception:
-                    pass
-            # Purchase хадгалах
+                    pass  # Merge хийхэд алдаа гарвал одоогийн effects-ээр хадгална
+
+            # ✅ Худалдан авалтыг shop_purchases-д бүртгэх
             await self.conn.execute("""
                 INSERT INTO shop_purchases (user_id, item_id, purchase_date, expiry_date, quantity)
                 VALUES (?, ?, ?, ?, ?)
             """, (user_id, item_id, purchase_date, expiry_date, quantity))
+
+            # ✅ Inventory-г шинэчлэх
             await self.conn.execute("""
                 INSERT INTO user_inventory (user_id, item_id, quantity, expiry_date, effects)
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(user_id, item_id) DO UPDATE SET 
                 quantity = quantity + ?, expiry_date = ?, effects = ?
             """, (user_id, item_id, quantity, expiry_date, effects_json, quantity, expiry_date, effects_json))
+
+            # ✅ Мөнгийг хасах
+            await self.conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (total_price, user_id))
+
             await self.conn.commit()
-            return True
+
+            # ✅ Хэрэглэгчид мэдэгдэл илгээх
+            user = self.bot.get_user(user_id)
+            if user is None:
+                try:
+                    user = await self.bot.fetch_user(user_id)
+                except Exception as fetch_err:
+                    print(f"[❌] Fetch user алдаа: {fetch_err}")
+                    user = None
+
+            if user:
+                try:
+                    await user.send(
+                        f"🎉 Та {quantity} ширхэг `{item['name']}` амжилттай худалдан авлаа!\n💸 Төлсөн: ₮{total_price:,}"
+                    )
+                except Exception as dm_error:
+                    print(f"[⚠️] DM илгээхэд алдаа гарлаа: {type(dm_error).__name__} - {dm_error}")
         except Exception as e:
-            logger.error(f"Purchase процессд алдаа: {e}")
+            # Handle any exception that occurs in the purchase_item method
+            print(f"[❌] purchase_item error: {e}")
             return False
+        return True
 
     @commands.command(name='inventory!!!!!', aliases=['inv!!!!!'])
     async def inventory(self, ctx: commands.Context) -> None:
@@ -413,28 +462,10 @@ class Shop(commands.Cog):
             )
             # Show each effect in a readable way
             if effects:
-                for item in effects:
-                    effect_lines = []
-                    item_name = item.get("name", item.get("item_id", ""))
-                    item_emoji = item.get("emoji", "✨")
-                    effect_data = item.get("effects", {})
-                    expiry = item.get("expiry_date", None)
-                    for k, v in effect_data.items():
-                        effect_lines.append(f"**{k}**: {v}")
-                    if expiry:
-                        try:
-                            expiry_dt = datetime.strptime(expiry, "%Y-%m-%d %H:%M:%S")
-                            if expiry_dt > datetime.now():
-                                left = (expiry_dt - datetime.now()).days
-                                effect_lines.append(f"⏰ Үлдсэн: {left} хоног")
-                            else:
-                                effect_lines.append("❌ Хугацаа дууссан")
-                        except Exception:
-                            effect_lines.append("❌ Хугацаа дууссан")
-                    else:
-                        effect_lines.append("♾️ Хугацаагүй")
+                for k, v in effects.items():
+                    effect_lines = [f"**{k}**: {v}"]
                     embed.add_field(
-                        name=f"{item_emoji} {item_name}",
+                        name=f"✨ {k}",
                         value="\n".join(effect_lines),
                         inline=False
                     )
@@ -508,7 +539,7 @@ class Shop(commands.Cog):
             await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
             raise commands.CheckFailure("Channel not enabled for commands.")
         
-    @tasks.loop(minutes=60)
+    @tasks.loop(minutes=1)
     async def auto_money_task(self):
         await self.ensure_connection()
         if self.conn is None:
@@ -523,7 +554,13 @@ class Shop(commands.Cog):
                 effects = json.loads(effects_json) if effects_json else {}
                 if "auto_money" in effects:
                     amount = int(effects["auto_money"])
-                    interval = int(effects.get("interval_hours", 0))
+                    # Use default interval 60 minutes if missing or invalid
+                    try:
+                        interval = int(effects.get("interval_minutes", 2))
+                        if interval <= 0:
+                            interval = 2
+                    except Exception:
+                        interval = 2
                     # Check expiry
                     async with self.conn.execute("SELECT expiry_date FROM user_inventory WHERE user_id=? AND item_id=?", (user_id, item_id)) as c:
                         expiry_row = await c.fetchone()
@@ -544,19 +581,49 @@ class Shop(commands.Cog):
                     else:
                         last_claim_dt = None
                     should_give = False
+                    delta = None
                     if not last_claim_dt:
                         should_give = True
                     else:
                         delta = now - last_claim_dt
-                        if interval > 0 and delta.total_seconds() >= interval * 3600:
+                        if interval > 0 and delta.total_seconds() >= interval * 60:
                             should_give = True
                     if should_give:
-                        # Give money
+                        # Give money to main balance (economy table)
+                        old_balance = await self.get_user_balance(user_id)
                         await self.update_user_balance(user_id, amount)
+                        new_balance = await self.get_user_balance(user_id)
                         # Update last_auto_money_claim
                         if self.conn is not None:
                             await self.conn.execute("UPDATE user_inventory SET last_auto_money_claim=? WHERE user_id=? AND item_id=?", (now.strftime("%Y-%m-%d %H:%M:%S"), user_id, item_id))
                             await self.conn.commit()
+                        # Send DM notification
+                        try:
+                            user = self.bot.get_user(user_id)
+                            msg = (
+                                f"💸 Автомат орлого идэвхжлээ!\n"
+                                f"Таны өмнөх баланс: {old_balance:,}₮\n"
+                                f"Нэмэгдсэн: {amount:,}₮\n"
+                                f"Шинэ баланс: {new_balance:,}₮"
+                            )
+                            sent = False
+                            if user:
+                                try:
+                                    await user.send(msg)
+                                    sent = True
+                                except Exception:
+                                    pass
+                            if not sent:
+                                try:
+                                    user = await self.bot.fetch_user(user_id)
+                                    await user.send(msg)
+                                    sent = True
+                                except Exception:
+                                    pass
+                            if not sent:
+                                logger.error(f"Failed to send DM to user {user_id}: DM blocked or other error.")
+                        except Exception as dm_err:
+                            logger.error(f"Failed to send DM to user {user_id}: {dm_err}")
             except Exception as e:
                 logger.error(f"auto_money_task error for user {user_id}: {e}")
 
