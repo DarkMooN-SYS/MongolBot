@@ -4,15 +4,31 @@ import discord
 from discord.ext import commands
 import random
 from datetime import datetime, timedelta
-from utils.database import get_async_db_context  # Ensure this imports a function/class, not a module
+import aiosqlite
+from pathlib import Path
+from typing import Optional
 
 class Minijob(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.data_dir: Path = Path(__file__).parent.parent.parent / 'data'
+        self.data_dir.mkdir(exist_ok=True)
+        self.db_path: Path = self.data_dir / 'economy.db'
+        self.conn: Optional[aiosqlite.Connection] = None
+
+    async def get_conn(self):
+        """Database connection үүсгэх (нэг л удаа холбогдоно)"""
+        if not self.conn:
+            self.conn = await aiosqlite.connect(self.db_path)
+            await self.conn.execute("PRAGMA journal_mode=WAL;")
+            await self.conn.execute("PRAGMA synchronous=NORMAL;")
+            await self.conn.execute("PRAGMA cache_size=1000;")
+        return self.conn
 
     @commands.command(name='work')
     async def work(self, ctx: commands.Context):
         user_id = ctx.author.id
+        now = datetime.utcnow()
 
         jobs = [
             ('Цэвэрлэгч', 60000),
@@ -27,43 +43,43 @@ class Minijob(commands.Cog):
             ('Дугуй засварчин', 68000)
         ]
 
-        now = datetime.utcnow()
+        db = await self.get_conn()
 
-        async with get_async_db_context("economy") as db:  # Make sure get_async_db_context is a function/class, not a module
-            await db.execute("""CREATE TABLE IF NOT EXISTS users (
-                                user_id INTEGER PRIMARY KEY,
-                                balance INTEGER DEFAULT 0,
-                                last_work TIMESTAMP)""")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                balance INTEGER DEFAULT 0,
+                last_work TIMESTAMP
+            )
+        """)
+        await db.commit()
+
+        # Хэрэглэгчийн мэдээлэл авах
+        cursor = await db.execute("SELECT balance, last_work FROM users WHERE user_id = ?", (user_id,))
+        row = await cursor.fetchone()
+
+        if row is None:
+            balance = 0
+            last_work = now - timedelta(hours=1)
+            await db.execute("INSERT INTO users (user_id, balance, last_work) VALUES (?, ?, ?)", (user_id, balance, last_work))
             await db.commit()
+        else:
+            balance, last_work_str = row
+            last_work = datetime.strptime(last_work_str, "%Y-%m-%d %H:%M:%S.%f") if last_work_str else now - timedelta(hours=1)
 
-            # Хэрэглэгч байгаа эсэхийг шалгана
-            cursor = await db.execute("SELECT balance, last_work FROM users WHERE user_id = ?", (user_id,))
-            row = await cursor.fetchone()
+        # Cooldown шалгах
+        if now - last_work < timedelta(hours=1):
+            remaining = timedelta(hours=1) - (now - last_work)
+            mins, secs = divmod(remaining.seconds, 60)
+            return await ctx.send(f"⏳ Та дахин ажиллахын тулд {mins} минут {secs} секунд хүлээнэ үү.")
 
-            if row is None:
-                # Хэрэглэгч байхгүй бол шинэчлэн бүртгэх
-                last_work = now - timedelta(hours=1)
-                await db.execute("INSERT INTO users (user_id, balance, last_work) VALUES (?, ?, ?)", (user_id, 0, last_work))
-                await db.commit()
-                balance = 0
-            else:
-                balance, last_work_str = row
-                last_work = datetime.strptime(last_work_str, "%Y-%m-%d %H:%M:%S.%f") if last_work_str else now - timedelta(hours=1)
+        # Ажил болон цалин
+        job, salary = random.choice(jobs)
+        new_balance = balance + salary
 
-            # Cooldown шалгах
-            if now - last_work < timedelta(hours=1):
-                remaining = timedelta(hours=1) - (now - last_work)
-                mins, secs = divmod(remaining.seconds, 60)
-                return await ctx.send(f"⏳ Та дахин ажиллахын тулд {mins} минут {secs} секунд хүлээнэ үү.")
+        await db.execute("UPDATE users SET balance = ?, last_work = ? WHERE user_id = ?", (new_balance, now, user_id))
+        await db.commit()
 
-            # Санамсаргүй ажил, тогтмол цалин
-            job, salary = random.choice(jobs)
-            new_balance = balance + salary
-
-            await db.execute("UPDATE users SET balance = ?, last_work = ? WHERE user_id = ?", (new_balance, now, user_id))
-            await db.commit()
-
-        # Embed хариу
         embed = discord.Embed(
             title="💼 Ажил амжилттай!",
             description=f"**Та \"{job}\" ажил хийж {salary:,}₮ цалин авлаа!**\n\n💰 Шинэ баланс: {new_balance:,}₮",
