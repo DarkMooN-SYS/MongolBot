@@ -665,7 +665,7 @@ class Bank(commands.Cog):
         await self.conn.commit()
         logger.info("✅ Хадгаламжийн хүү тооцооллоо!")
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=60)
     async def process_overdue_loans(self) -> None:
         """Зээлийн хугацаа хэтэрсэн хэрэглэгчдийг 1 цаг тутамд автоматаар шалгаж, мөнгийг суутгана."""
         await self.ensure_connection()
@@ -679,7 +679,6 @@ class Bank(commands.Cog):
                 for row in rows:
                     user_id, due_date_str, loan_balance, perma_block = row
                     if perma_block == 1:
-                        logger.info(f"User {user_id} is perma blocked, skipping.")
                         continue
                     try:
                         due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
