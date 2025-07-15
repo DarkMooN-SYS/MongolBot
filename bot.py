@@ -73,6 +73,9 @@ extensions = [
     'cogs.economy.serverbank',
     'cogs.economy.vip',
 
+    # minijob Cogs
+    'cogs.minijob.minijob',
+
     # Shop Cogs
     'cogs.shop.shop',
 
