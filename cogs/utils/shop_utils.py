@@ -74,14 +74,16 @@ async def is_rob_protected(conn: aiosqlite.Connection, user_id: int) -> bool:
     Хэрэглэгч rob protection идэвхтэй эсэхийг шалгана.
     """
     effects = await get_active_effects(conn, user_id)
-    return bool(effects.get("rob_protection", False))
+    # Accept both rob_protect and rob_protection for compatibility
+    return bool(effects.get("rob_protect") or effects.get("rob_protection"))
 
 async def is_hack_protected(conn: aiosqlite.Connection, user_id: int) -> bool:
     """
     Хэрэглэгч hack protection идэвхтэй эсэхийг шалгана.
     """
     effects = await get_active_effects(conn, user_id)
-    return bool(effects.get("hack_protection", False))
+    # Accept both hack_protect and hack_protection for compatibility
+    return bool(effects.get("hack_protect") or effects.get("hack_protection"))
 
 async def get_auto_money(conn: aiosqlite.Connection, user_id: int) -> dict:
     """
@@ -108,6 +110,9 @@ async def get_shop_discount(conn: aiosqlite.Connection, user_id: int) -> float:
     Хэрэглэгчийн shop discount effect-ийг авна.
     """
     effects = await get_active_effects(conn, user_id)
+    import logging
+    logger = logging.getLogger("shop_utils")
+    logger.info(f"[DEBUG] get_shop_discount for user {user_id}: effects={effects}")
     return float(effects.get("shop_discount", 0))
 
 # --- Effect summary utility ---

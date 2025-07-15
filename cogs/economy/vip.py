@@ -497,12 +497,13 @@ class VIP(commands.Cog):
         vip_level = data[1]
         if vip_level not in self.vip_levels:
             return await ctx.send("❌ Танай VIP түвшин хүчингүй байна!")
-            
         bonus = self.vip_levels[vip_level].get("bonus", 0)
         today = datetime.now().strftime("%Y-%m-%d")
 
         try:
+            from cogs.utils.shop_utils import has_auto_claim_daily
             async with get_async_db_context('economy') as db:
+                auto_claim = await has_auto_claim_daily(db, ctx.author.id)
                 # Өнөөдөр авсан эсэхийг шалгах
                 async with db.execute("SELECT last_claimed FROM users1 WHERE user_id=?", (ctx.author.id,)) as cursor:
                     row = await cursor.fetchone()
@@ -512,7 +513,7 @@ class VIP(commands.Cog):
                 # Урамшуулал олгох
                 if not await self.update_balance(ctx.author.id, bonus):
                     return await ctx.send("⚠️ Урамшуулал олгоход алдаа гарлаа!")
-                
+
                 # Авсан өдрийг хадгалах
                 await db.execute("UPDATE users1 SET last_claimed = ? WHERE user_id=?", (today, ctx.author.id))
                 await db.commit()
@@ -520,7 +521,8 @@ class VIP(commands.Cog):
             embed = discord.Embed(title="🎁 VIP Өдөр тутмын урамшуулал!", color=discord.Color.gold())
             embed.add_field(name="VIP түвшин", value=vip_level)
             embed.add_field(name="Шагнал", value=f"{bonus:,}₮")
-            
+            if auto_claim:
+                embed.set_footer(text="🤖 Танд 'Автомат цуглуулагч' идэвхтэй байна. Өдөр тутмын VIP шагналыг автоматаар авсан!")
             return await ctx.send(embed=embed)
         except Exception:
             return await ctx.send("⚠️ Системд алдаа гарлаа!")

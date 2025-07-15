@@ -689,6 +689,8 @@ class Job(commands.Cog):
             await ctx.send(f"❌ Дээрэм амжилтгүй боллоо, та **{penalty:,}₮** торгууль төлсөн!")
             await self.add_xp(robber_id, 5)
         await self.update_cooldown(robber_id, "rob", cooldown_time)
+        cooldown_text = await self.format_remaining_time(cooldown_time)
+        await ctx.send(f"⏳ Дараагийн дээрэмдэлт {cooldown_text} дараа боломжтой болно.")
 
     @rob.command(name='bank')
     async def rob_bank(self, ctx: commands.Context, target: discord.Member) -> None:
@@ -728,7 +730,7 @@ class Job(commands.Cog):
             return
         
         rob_config = self.get_level_config("ROB_LEVELS", rob_level)
-        cooldown_time = rob_config.get("cooldown", 3600)
+        cooldown_time = rob_config.get("cooldown", 7200)
         percent = rob_config.get("percent", 0.03)  # Банк дээрэмд илүү өндөр хувь
         cooldown = await self.get_cooldown(robber_id, "rob")
         if int(time.time()) < cooldown:
@@ -744,6 +746,8 @@ class Job(commands.Cog):
         await self.update_cooldown(robber_id, "rob", cooldown_time)
         await self.add_xp(robber_id, 70)
         await ctx.send(f"🏦 {ctx.author.display_name} {target.display_name}-ын банкнаас {stolen_amount:,}₮ дээрэмдлээ!")
+        cooldown_text = await self.format_remaining_time(cooldown_time)
+        await ctx.send(f"⏳ Дараагийн банк дээрэмдэлт {cooldown_text} дараа боломжтой болно.")
 
     # ----------------- Хак хийх команд group -----------------
     @commands.group(name='hack', invoke_without_command=True)
@@ -782,7 +786,7 @@ class Job(commands.Cog):
         status = await self.get_user_status_data(hacker_id)
         hack_level = status.get("hack_level", 1)
         hack_config = self.get_level_config("HACK_LEVELS", hack_level)
-        cooldown_time = hack_config.get("cooldown", 86400)
+        cooldown_time = hack_config.get("cooldown", 21600)
         success_chance = hack_config.get("success", 0.5)
         percent = hack_config.get("percent", 0.02)
 
@@ -795,6 +799,8 @@ class Job(commands.Cog):
             await ctx.send(f"⏳ Хак эхэллээ, 1 минутын дараа хакдах болно!")
             asyncio.create_task(self.hack_with_delay(ctx, hacker_id, target_id, percent))
             await self.add_xp(hacker_id, 80)
+            cooldown_text = await self.format_remaining_time(cooldown_time)
+            await ctx.send(f"⏳ Дараагийн хак {cooldown_text} дараа боломжтой болно.")
         else:
             await self.update_cooldown(hacker_id, "hack", cooldown_time)
             # Амжилтгүй бол торгууль төлнө
@@ -804,6 +810,8 @@ class Job(commands.Cog):
             await self.update_balance(hacker_id, -penalty)
             await ctx.send(f"❌ Хак амжилтгүй боллоо, та **{penalty:,}₮** торгууль төлсөн!")
             await self.add_xp(hacker_id, 5)
+            cooldown_text = await self.format_remaining_time(cooldown_time)
+            await ctx.send(f"⏳ Дараагийн хак {cooldown_text} дараа боломжтой болно.")
 
     @hack.command(name='save')
     async def hack_save(self, ctx: commands.Context, target: discord.Member) -> None:
@@ -856,7 +864,7 @@ class Job(commands.Cog):
             return
 
         hack_config = self.get_level_config("HACK_LEVELS", hack_level)
-        cooldown_time = hack_config.get("cooldown", 86400)
+        cooldown_time = hack_config.get("cooldown", 43200)
         percent = hack_config.get("percent", 0.03)  # Хадгаламж хакдах хувь
         cooldown = await self.get_cooldown(hacker_id, "hack")
 
@@ -883,6 +891,8 @@ class Job(commands.Cog):
         await ctx.send(f"⏳ Хадгаламж хак эхэллээ, 1 минутын дараа хакдах болно!")
         asyncio.create_task(self.hack_savings_with_delay(ctx, hacker_id, target_id, percent))
         await self.add_xp(hacker_id, 80)
+        cooldown_text = await self.format_remaining_time(cooldown_time)
+        await ctx.send(f"⏳ Дараагийн хадгаламж хак {cooldown_text} дараа боломжтой болно.")
 
     async def hack_savings_with_delay(self, ctx: commands.Context, hacker_id: int, target_id: int, percent: float = 0.03) -> None:
         """
