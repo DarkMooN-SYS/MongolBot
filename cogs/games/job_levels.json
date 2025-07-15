@@ -21,7 +21,7 @@
     "percent": 0.02
   },
   "DEFAULT_HACK": {
-    "cooldown": 86400,
+    "cooldown": 21600,
     "success": 0.5,
     "percent": 0.02
   }
