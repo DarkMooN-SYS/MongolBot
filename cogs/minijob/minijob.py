@@ -46,7 +46,7 @@ class Minijob(commands.Cog):
         db = await self.get_conn()
 
         await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
+            CREATE TABLE IF NOT EXISTS economy (
                 user_id INTEGER PRIMARY KEY,
                 balance INTEGER DEFAULT 0,
                 last_work TIMESTAMP
@@ -55,13 +55,13 @@ class Minijob(commands.Cog):
         await db.commit()
 
         # Хэрэглэгчийн мэдээлэл авах
-        cursor = await db.execute("SELECT balance, last_work FROM users WHERE user_id = ?", (user_id,))
+        cursor = await db.execute("SELECT balance, last_work FROM economy WHERE user_id = ?", (user_id,))
         row = await cursor.fetchone()
 
         if row is None:
             balance = 0
             last_work = now - timedelta(hours=1)
-            await db.execute("INSERT INTO users (user_id, balance, last_work) VALUES (?, ?, ?)", (user_id, balance, last_work))
+            await db.execute("INSERT INTO economy (user_id, balance, last_work) VALUES (?, ?, ?)", (user_id, balance, last_work))
             await db.commit()
         else:
             balance, last_work_str = row
@@ -77,7 +77,7 @@ class Minijob(commands.Cog):
         job, salary = random.choice(jobs)
         new_balance = balance + salary
 
-        await db.execute("UPDATE users SET balance = ?, last_work = ? WHERE user_id = ?", (new_balance, now, user_id))
+        await db.execute("UPDATE economy SET balance = ?, last_work = ? WHERE user_id = ?", (new_balance, now, user_id))
         await db.commit()
 
         embed = discord.Embed(
