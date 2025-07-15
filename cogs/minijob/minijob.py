@@ -23,6 +23,12 @@ class Minijob(commands.Cog):
             await self.conn.execute("PRAGMA journal_mode=WAL;")
             await self.conn.execute("PRAGMA synchronous=NORMAL;")
             await self.conn.execute("PRAGMA cache_size=1000;")
+            # Ensure 'last_work' column exists
+            cursor = await self.conn.execute("PRAGMA table_info(economy);")
+            columns = [row[1] async for row in cursor]
+            if 'last_work' not in columns:
+                await self.conn.execute("ALTER TABLE economy ADD COLUMN last_work TIMESTAMP;")
+                await self.conn.commit()
         return self.conn
 
     @commands.command(name='work')
