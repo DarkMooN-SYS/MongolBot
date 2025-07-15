@@ -1,7 +1,7 @@
 {
     "VIP_LEVELS": {        
         "Bronze": {
-            "price": 22000000,
+            "price": 18000000,
             "gift_discount": 0.90,
             "days": 30,
             "bonus": 500000,
@@ -12,7 +12,7 @@
             "loan_interest_rate": 0.04
         },        
         "Silver": {
-            "price": 40000000,
+            "price": 35000000,
             "gift_discount": 0.85,
             "days": 30,
             "bonus": 1000000,
@@ -23,7 +23,7 @@
             "loan_interest_rate": 0.035
         },        
         "Gold": {
-            "price": 85000000,
+            "price": 60000000,
             "gift_discount": 0.80,
             "days": 60,
             "bonus": 1500000,
@@ -34,7 +34,7 @@
             "loan_interest_rate": 0.03
         },          
         "Diamond": {
-            "price": 150000000,
+            "price": 90000000,
             "gift_discount": 0.75,
             "days": 60,
             "bonus": 2000000,
