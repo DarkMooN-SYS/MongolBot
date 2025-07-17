@@ -539,7 +539,7 @@ class Shop(commands.Cog):
             await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
             raise commands.CheckFailure("Channel not enabled for commands.")
         
-    @tasks.loop(minutes=60)
+    @tasks.loop(hours=6)
     async def auto_money_task(self):
         await self.ensure_connection()
         if self.conn is None:
