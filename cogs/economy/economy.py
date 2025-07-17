@@ -205,6 +205,9 @@ class Economy(commands.Cog):
             await self.ensure_connection()
             if self.conn is None:
                 raise RuntimeError("Database connection is not established!")
+            # Check for auto_claim_daily effect
+            from cogs.utils.shop_utils import has_auto_claim_daily
+            auto_claim = await has_auto_claim_daily(self.conn, ctx.author.id)
             async with self.conn.execute("SELECT streak, last_claim FROM rewards WHERE user_id = ?", (ctx.author.id,)) as cursor:
                 reward_data = await cursor.fetchone()
             if reward_data is None:
@@ -233,7 +236,10 @@ class Economy(commands.Cog):
                 if self.conn is None:
                     raise RuntimeError("Database connection is not established!")
                 await self.conn.commit()
-                await ctx.send(f"💸 | {ctx.author.display_name}, энэ таны шагнал байна 🤑 {reward_amount:,} төгрөг!")
+                if auto_claim:
+                    await ctx.send(f"🤖 Танд 'Автомат цуглуулагч' идэвхтэй байна. Өдөр тутмын шагналыг автоматаар авсан! 🤑 {reward_amount:,} төгрөг!")
+                else:
+                    await ctx.send(f"💸 | {ctx.author.display_name}, энэ таны шагнал байна 🤑 {reward_amount:,} төгрөг!")
             else:
                 next_claim_time = reward_data[1] + 43200
                 remaining_time = next_claim_time - current_time

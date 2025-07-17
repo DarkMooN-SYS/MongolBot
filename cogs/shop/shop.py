@@ -539,7 +539,7 @@ class Shop(commands.Cog):
             await ctx.send("Энэ channel-д команд ашиглах боломжгүй!")
             raise commands.CheckFailure("Channel not enabled for commands.")
         
-    @tasks.loop(minutes=1)
+    @tasks.loop(minutes=60)
     async def auto_money_task(self):
         await self.ensure_connection()
         if self.conn is None:
@@ -554,13 +554,13 @@ class Shop(commands.Cog):
                 effects = json.loads(effects_json) if effects_json else {}
                 if "auto_money" in effects:
                     amount = int(effects["auto_money"])
-                    # Use default interval 60 minutes if missing or invalid
+                    # Use default interval 6 hours if missing or invalid
                     try:
-                        interval = int(effects.get("interval_minutes", 2))
+                        interval = int(effects.get("interval_hours", 6))
                         if interval <= 0:
-                            interval = 2
+                            interval = 6
                     except Exception:
-                        interval = 2
+                        interval = 6
                     # Check expiry
                     async with self.conn.execute("SELECT expiry_date FROM user_inventory WHERE user_id=? AND item_id=?", (user_id, item_id)) as c:
                         expiry_row = await c.fetchone()
