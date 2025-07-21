@@ -131,8 +131,8 @@ class MinefieldView(discord.ui.View):
 
     def increase_multiplier(self):
         multiplier_map = {
-            3: [2.4, 3, 4, 4.4, 5, 6],
-            4: [2.4, 3, 4, 4.4, 5, 6, 6.4, 7, 8, 8.4, 9],
+            3: [1.4, 2, 2.4, 3, 3.4, 4],
+            4: [1.4, 2, 2.4, 3, 3.4, 4, 4.4, 5, 5.4, 6, 6.4],
         }
         safe_moves = len(self.opened)
         max_safe_moves = len(multiplier_map[self.dimension])
