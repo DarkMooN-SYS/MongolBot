@@ -334,5 +334,42 @@ class Owner(commands.Cog):
                 except asyncio.TimeoutError:
                     break
 
+    @commands.command(name='delete', help='Хэрэглэгчийн бүх мэдээллийг database-ees устгах.')
+    @commands.is_owner()
+    async def delete_user_data(self, ctx: commands.Context, user_id: int):
+        """Хэрэглэгчийн бүх мэдээллийг database-ees устгах"""
+        db_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'data')
+        if not os.path.exists(db_dir):
+            await ctx.send("❌ Database хавтас олдсонгүй!")
+            return
+
+        deleted_tables = []
+        failed_tables = []
+        # Бүх .db файлуудыг шалгах
+        for fname in os.listdir(db_dir):
+            if fname.endswith('.db'):
+                db_path = os.path.join(db_dir, fname)
+                try:
+                    async with aiosqlite.connect(db_path) as db:
+                        # Бүх хүснэгтүүдийг авах
+                        async with db.execute("SELECT name FROM sqlite_master WHERE type='table'") as cursor:
+                            tables = [row[0] for row in await cursor.fetchall()]
+                        for table in tables:
+                            # Хэрэглэгчийн ID багана байгаа эсэхийг шалгах
+                            async with db.execute(f"PRAGMA table_info({table})") as cur2:
+                                columns = [row[1] for row in await cur2.fetchall()]
+                            if 'user_id' in columns:
+                                await db.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+                                deleted_tables.append(f"{fname}:{table}")
+                        await db.commit()
+                except Exception as e:
+                    failed_tables.append(f"{fname} ({e})")
+
+        embed = discord.Embed(title="🗑️ Хэрэглэгчийн мэдээлэл устгах", color=discord.Color.red())
+        embed.add_field(name="Амжилттай устгасан хүснэгтүүд", value="\n".join(deleted_tables) if deleted_tables else "Байхгүй", inline=False)
+        if failed_tables:
+            embed.add_field(name="Амжилтгүй хүснэгтүүд", value="\n".join(failed_tables), inline=False)
+        await ctx.send(embed=embed)
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(Owner(bot))
