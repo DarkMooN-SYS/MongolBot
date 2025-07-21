@@ -333,6 +333,7 @@ async def dm(ctx: commands.Context, target: str, *, message: str):
     """Хэрэглэгчийн ID, суваг ID, эсвэл суваг дурдах ашиглан мессеж илгээх"""
     try:
         # Хэрэглэгч эсвэл суваг шалгах
+        is_owner = ctx.author.id == bot.owner_id
         if target.isdigit():
             target_id = int(target)
             user = bot.get_user(target_id)
@@ -364,15 +365,22 @@ async def dm(ctx: commands.Context, target: str, *, message: str):
             elif channel and isinstance(channel, discord.TextChannel):
                 # Зөвхөн TextChannel бол мессеж илгээх
                 member = ctx.guild.get_member(ctx.author.id) if ctx.guild else None
-                if not member:
+                if not member and not is_owner:
                     confirmation = await ctx.send("Гишүүн олдсонгүй.")
                 else:
-                    perms = channel.permissions_for(member)
-                    if not perms.send_messages:
-                        confirmation = await ctx.send(f"Танд {channel.name} сувагт бичих эрх байхгүй байна.")
-                    else:
+                    # If owner, skip permission check
+                    if is_owner:
                         await channel.send(message)
                         confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
+                    elif member:
+                        perms = channel.permissions_for(member)
+                        if not perms.send_messages:
+                            confirmation = await ctx.send(f"Танд {channel.name} сувагт бичих эрх байхгүй байна.")
+                        else:
+                            await channel.send(message)
+                            confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
+                    else:
+                        confirmation = await ctx.send("Гишүүн олдсонгүй.")
             else:
                 confirmation = await ctx.send("Хэрэглэгч эсвэл суваг олдсонгүй.")
         elif target.startswith("<#") and target.endswith(">"):
@@ -381,15 +389,22 @@ async def dm(ctx: commands.Context, target: str, *, message: str):
             channel = bot.get_channel(channel_id)
             if channel and isinstance(channel, discord.TextChannel):
                 member = ctx.guild.get_member(ctx.author.id) if ctx.guild else None
-                if not member:
+                if not member and not is_owner:
                     confirmation = await ctx.send("Гишүүн олдсонгүй.")
                 else:
-                    perms = channel.permissions_for(member)
-                    if not perms.send_messages:
-                        confirmation = await ctx.send(f"Танд {channel.name} сувагт бичих эрх байхгүй байна.")
-                    else:
+                    # If owner, skip permission check
+                    if is_owner:
                         await channel.send(message)
                         confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
+                    elif member:
+                        perms = channel.permissions_for(member)
+                        if not perms.send_messages:
+                            confirmation = await ctx.send(f"Танд {channel.name} сувагт бичих эрх байхгүй байна.")
+                        else:
+                            await channel.send(message)
+                            confirmation = await ctx.send(f"Мессеж {channel.name} суваг руу амжилттай илгээгдлээ.")
+                    else:
+                        confirmation = await ctx.send("Гишүүн олдсонгүй.")
             else:
                 confirmation = await ctx.send("Суваг олдсонгүй.")
         else:
