@@ -17,7 +17,7 @@
             "days": 30,
             "bonus": 1000000,
             "extend_price": 360000000,
-            "max_bet": 700000,
+            "max_bet": 750000,
             "cooldown": 6,
             "max_loan": 3000000,
             "loan_interest_rate": 0.035
@@ -28,7 +28,7 @@
             "days": 60,
             "bonus": 1500000,
             "extend_price": 480000000,
-            "max_bet": 900000,
+            "max_bet": 1000000,
             "cooldown": 4,
             "max_loan": 4000000,
             "loan_interest_rate": 0.03
@@ -39,7 +39,7 @@
             "days": 60,
             "bonus": 2000000,
             "extend_price": 550000000,
-            "max_bet": 1100000,
+            "max_bet": 1500000,
             "cooldown": 2,
             "max_loan": 5000000,
             "loan_interest_rate": 0.025
