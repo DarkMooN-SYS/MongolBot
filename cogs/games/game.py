@@ -132,7 +132,7 @@ class MinefieldView(discord.ui.View):
     def increase_multiplier(self):
         multiplier_map = {
             3: [1.1, 1.2, 1.35, 1.5, 1.75, 2],
-            4: [25],
+            4: [1.1, 1.2, 1.35, 1.5, 1.75, 2, 2.4, 2.8, 3.3, 4, 5.5, 7, 9],
         }
         safe_moves = len(self.opened)
         max_safe_moves = len(multiplier_map[self.dimension])
@@ -503,7 +503,7 @@ class Game(commands.Cog):
             await ctx.send("⚠️ Таны дансны үлдэгдэл хүрэлцэхгүй байна!")
             return
         view = discord.ui.View(timeout=None)
-        sizes = {"3x3": (3, 2), "4x4": (4, 15)}
+        sizes = {"3x3": (3, 2), "4x4": (4, 3)}
         for label, (dimension, bombs) in sizes.items():
             button = discord.ui.Button(label=label, style=discord.ButtonStyle.primary)
             async def callback(interaction: discord.Interaction, dim: int = dimension, bom: int = bombs):
