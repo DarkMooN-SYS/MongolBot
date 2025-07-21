@@ -111,7 +111,7 @@ def start_tax_loop():
         while True:
             last_date = await get_last_tax_date()
             now = datetime.datetime.now()
-            if not last_date or (now - last_date).total_seconds() >= 86400:
+            if not last_date or (now - last_date).total_seconds() >= 43200:
                 await tax_all_users()
                 await set_last_tax_date()
             await asyncio.sleep(3600)  # 1 цаг тутамд шалгана
