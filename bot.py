@@ -95,7 +95,7 @@ extensions = [
     # Admin Cogs
     'cogs.admin.admin',
     'cogs.admin.owner',
-    'cogs.admin.suggest',
+    # 'cogs.admin.suggest',
     'cogs.admin.giveaway',
     'cogs.admin.fun',
     'cogs.admin.birthday',
