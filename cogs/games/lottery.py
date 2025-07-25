@@ -90,6 +90,7 @@ class Lottery(commands.Cog):
                 async with db.execute('SELECT user_id, ticket_count FROM tickets') as cursor:
                     async for row in cursor:
                         self.tickets[row[0]] = row[1]
+                print(f"[DEBUG] Тасалбарууд ачаалагдлаа: {self.tickets}")
                 
                 # Jackpot болон сүүлийн сугалааны мэдээлэл ачаалах
                 async with db.execute('SELECT jackpot, last_draw FROM lottery_info WHERE id = 1') as cursor:
@@ -115,36 +116,31 @@ class Lottery(commands.Cog):
 
     async def save_lottery_data(self):
         """Одоогийн мэдээллийг database-д хадгалах"""
+        # Database болон table-г эхлээд шалгаж байна
         try:
-            # Database болон table-г эхлээд шалгаж байна
             await self.init_database()
-            
             async with aiosqlite.connect(str(self.db_path)) as db:
                 # Transaction ашиглах
                 await db.execute('BEGIN TRANSACTION')
-                
                 try:
                     # Тасалбарууд хадгалах
                     await db.execute('DELETE FROM tickets')
                     for user_id, count in self.tickets.items():
                         await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
                                        (user_id, count))
-                    
+                    print(f"[DEBUG] Тасалбарууд хадгалагдлаа: {self.tickets}")
                     # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
                     last_draw_str = self.last_draw.isoformat() if self.last_draw else None
                     await db.execute('''
                         INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
                         VALUES (1, ?, ?)
                     ''', (self.jackpot, last_draw_str))
-                    
                     await db.execute('COMMIT')
                     print(f"✅ Lottery data амжилттай хадгалагдлаа - Jackpot: {self.jackpot:,}₮, Tickets: {len(self.tickets)}")
-                    
                 except Exception as e:
                     await db.execute('ROLLBACK')
                     print(f"❌ Transaction rollback: {e}")
                     raise
-                    
         except Exception as e:
             print(f"❌ Lottery data хадгалахад алдаа: {e}")
             # Database алдаа гарвал дахин үүсгэж оролдох
@@ -323,6 +319,10 @@ class Lottery(commands.Cog):
             elif (now - self.last_draw).days >= LOTTERY_INTERVAL_DAYS:
                 guild = self.bot.get_guild(1297446169995251712)
                 channel = guild.get_channel(1297446170003767383) if guild else None
+                if not guild:
+                    print("[ERROR] Guild object олдсонгүй!")
+                if not channel:
+                    print("[ERROR] Channel object олдсонгүй!")
                 if self.tickets and isinstance(channel, discord.TextChannel):
                     pool = []
                     for user_id, count in self.tickets.items():
@@ -368,6 +368,8 @@ class Lottery(commands.Cog):
                     )
                     
                     await channel.send(content='@everyone 🎉 **СУГАЛААНЫ ҮНДЭСНИЙ ЯЛАГЧ ТОДОРЛОО!** 🎉', embed=embed)
+                else:
+                    print(f"[ERROR] Сугалааны ялагч зарлах channel.send боломжгүй! Guild: {guild}, Channel: {channel}")
                     self.tickets.clear()
                     self.jackpot = 0
                     self.last_draw = now
