@@ -457,6 +457,7 @@ class Job(commands.Cog):
     async def add_xp(self, user_id: int, amount: int = 10) -> None:
         """
         Хэрэглэгчид XP нэмэх, level up шалгах, skill level автомат шинэчлэх
+        XP gain is now affected by current level.
         """
         if self.conn is None:
             return
@@ -466,11 +467,15 @@ class Job(commands.Cog):
             VALUES (?, 1, 1, 1, 0, 0)
         """, (user_id,))
         # XP болон level авах
-        async with self.conn.execute("SELECT xp, level FROM job WHERE user_id=?", (user_id,)) as cursor:
+        async with self.conn.execute("SELECT xp, level, rob_level, hack_level FROM job WHERE user_id=?", (user_id,)) as cursor:
             row = await cursor.fetchone()
         xp = row[0] if row and row[0] is not None else 0
         level = row[1] if row and row[1] is not None else 1
-        xp += amount
+        rob_level = row[2] if row and row[2] is not None else 1
+        hack_level = row[3] if row and row[3] is not None else 1
+        # XP gain affected by current level
+        xp_gain = amount + (level - 1) * 2
+        xp += xp_gain
         # Level up-д шаардагдах XP (жишээ: 100 + (level-1)*20)
         level_up_xp = 100 + (level - 1) * 20
         leveled_up = False
@@ -479,13 +484,12 @@ class Job(commands.Cog):
             level += 1
             leveled_up = True
             level_up_xp = 100 + (level - 1) * 20
-        # Update main level and XP
-        await self.conn.execute("UPDATE job SET xp=?, level=? WHERE user_id=?", (xp, level, user_id))
+        # Skill level calculation (do not reset)
+        new_rob_level = max(rob_level, min(1 + (xp // 200), 30))
+        new_hack_level = max(hack_level, min(1 + (xp // 250), 30))
+        # Update main level, XP, rob_level, hack_level
+        await self.conn.execute("UPDATE job SET xp=?, level=?, rob_level=?, hack_level=? WHERE user_id=?", (xp, level, new_rob_level, new_hack_level, user_id))
         await self.conn.commit()
-        
-        # Skill level автомат шинэчлэх
-        await self.check_and_upgrade_skill_levels(user_id)
-        
         # Level ахисан бол DM илгээх
         if leveled_up:
             user = self.bot.get_user(user_id)
