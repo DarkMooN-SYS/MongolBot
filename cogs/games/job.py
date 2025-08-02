@@ -473,9 +473,18 @@ class Job(commands.Cog):
         level = row[1] if row and row[1] is not None else 1
         rob_level = row[2] if row and row[2] is not None else 1
         hack_level = row[3] if row and row[3] is not None else 1
+        
+        # Total accumulated XP тооцоолох (level reset хийхээс өмнө)
+        # Level 1: 0-99 XP, Level 2: 100-219 XP, Level 3: 220-359 XP, гэх мэт
+        total_xp = xp
+        for i in range(1, level):
+            total_xp += 100 + (i - 1) * 20
+        
         # XP gain affected by current level
         xp_gain = amount + (level - 1) * 2
         xp += xp_gain
+        total_xp += xp_gain
+        
         # Level up-д шаардагдах XP (жишээ: 100 + (level-1)*20)
         level_up_xp = 100 + (level - 1) * 20
         leveled_up = False
@@ -484,9 +493,11 @@ class Job(commands.Cog):
             level += 1
             leveled_up = True
             level_up_xp = 100 + (level - 1) * 20
-        # Skill level calculation (do not reset)
-        new_rob_level = max(rob_level, min(1 + (xp // 200), 30))
-        new_hack_level = max(hack_level, min(1 + (xp // 250), 30))
+        
+        # Skill level calculation using total accumulated XP (never decrease)
+        new_rob_level = max(rob_level, min(1 + (total_xp // 200), 30))
+        new_hack_level = max(hack_level, min(1 + (total_xp // 250), 30))
+        
         # Update main level, XP, rob_level, hack_level
         await self.conn.execute("UPDATE job SET xp=?, level=?, rob_level=?, hack_level=? WHERE user_id=?", (xp, level, new_rob_level, new_hack_level, user_id))
         await self.conn.commit()
@@ -510,14 +521,20 @@ class Job(commands.Cog):
         # Хэрэглэгчийн статус авах
         status = await self.get_user_status_data(user_id)
         current_xp = status.get("xp", 0)
+        current_level = status.get("level", 1)
         rob_level = status.get("rob_level", 1)
         hack_level = status.get("hack_level", 1)
         
-        # Rob level нэмэгдүүлэх шалгуур (200 XP тутамд +1, max 30)
-        new_rob_level = min(1 + (current_xp // 200), 30)
+        # Total accumulated XP тооцоолох
+        total_xp = current_xp
+        for i in range(1, current_level):
+            total_xp += 100 + (i - 1) * 20
         
-        # Hack level нэмэгдүүлэх шалгуур (250 XP тутамд +1, max 30) 
-        new_hack_level = min(1 + (current_xp // 250), 30)
+        # Rob level нэмэгдүүлэх шалгуур (200 total XP тутамд +1, max 30)
+        new_rob_level = max(rob_level, min(1 + (total_xp // 200), 30))
+        
+        # Hack level нэмэгдүүлэх шалгуур (250 total XP тутамд +1, max 30) 
+        new_hack_level = max(hack_level, min(1 + (total_xp // 250), 30))
         
         # Level шинэчлэх
         if new_rob_level > rob_level:
@@ -553,26 +570,32 @@ class Job(commands.Cog):
         rob_level = status.get("rob_level", 1)
         hack_level = status.get("hack_level", 1)
         
+        # Total accumulated XP тооцоолох
+        total_xp = current_xp
+        for i in range(1, current_level):
+            total_xp += 100 + (i - 1) * 20
+        
         # Дараагийн main level-д шаардагдах XP
         next_level_xp = 100 + (current_level - 1) * 20
         xp_needed_for_level = max(next_level_xp - current_xp, 0)
         
-        # Дараагийн rob level-д шаардагдах XP (max 30)
+        # Дараагийн rob level-д шаардагдах total XP (max 30)
         if rob_level >= 30:
             xp_needed_for_rob = 0  # MAX түвшин
         else:
-            next_rob_level_xp = rob_level * 200
-            xp_needed_for_rob = max(next_rob_level_xp - current_xp, 0)
+            next_rob_level_total_xp = rob_level * 200
+            xp_needed_for_rob = max(next_rob_level_total_xp - total_xp, 0)
         
-        # Дараагийн hack level-д шаардагдах XP (max 30)
+        # Дараагийн hack level-д шаардагдах total XP (max 30)
         if hack_level >= 30:
             xp_needed_for_hack = 0  # MAX түвшин
         else:
-            next_hack_level_xp = hack_level * 250
-            xp_needed_for_hack = max(next_hack_level_xp - current_xp, 0)
+            next_hack_level_total_xp = hack_level * 250
+            xp_needed_for_hack = max(next_hack_level_total_xp - total_xp, 0)
         
         return {
             "current_xp": current_xp,
+            "total_xp": total_xp,
             "next_level": current_level + 1,
             "xp_for_next_level": next_level_xp,
             "xp_needed_for_level": xp_needed_for_level,

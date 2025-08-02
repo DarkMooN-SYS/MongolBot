@@ -7,9 +7,9 @@ import pytz
 from .vip_utils import get_vip_level
 from typing import Any
 import aiosqlite
-import os
 from pathlib import Path
 from ..utils.channel import is_channel_enabled
+import asyncio
 
 TICKET_PRICE = 300_000
 MAX_TICKETS_PER_USER = 2 # Суурь тасалбарын тоо
@@ -26,6 +26,7 @@ class Lottery(commands.Cog):
         self.tickets = {}  # {user_id: ticket_count}
         self.jackpot = 0
         self.last_draw = None
+        self.last_save = datetime.now()  # Сүүлийн удаа хадгалсан цаг
         self.winners = []  # [(user_id, amount, date)]
         
         # Database path-ийг илүү найдвартай болгох
@@ -33,7 +34,8 @@ class Lottery(commands.Cog):
         self.data_dir.mkdir(exist_ok=True)
         self.db_path = self.data_dir / 'lottery.db'
         
-        # self.lottery_task.start()  # Moved to cog_load
+        # Auto-save task-ыг дараа эхлүүлэх
+        self.auto_save_task = None
 
     async def cog_load(self):
         """Cog ачаалагдахад database болон өгөгдлүүдийг сэргээх"""
@@ -41,6 +43,27 @@ class Lottery(commands.Cog):
         await self.load_lottery_data()
         if not self.lottery_task.is_running():
             self.lottery_task.start()
+        
+        # Auto-save task эхлүүлэх (хэрэглэгчдийн data алдагдахаас сэргийлэх)
+        if self.auto_save_task is None or self.auto_save_task.done():
+            self.auto_save_task = self.bot.loop.create_task(self.periodic_auto_save())
+
+    async def periodic_auto_save(self):
+        """5 минут тутамд автомат хадгалах"""
+        while True:
+            try:
+                await asyncio.sleep(300)  # 5 минут
+                # Data өөрчлөгдсөн эсэхийг шалгах
+                if self.tickets and (datetime.now() - self.last_save).seconds > 300:
+                    await self.save_lottery_data()
+                    self.last_save = datetime.now()
+                    print("🔄 Periodic auto-save: Lottery data хадгалагдлаа")
+            except asyncio.CancelledError:
+                print("🛑 Periodic auto-save task зогсоогдлоо")
+                break
+            except Exception as e:
+                print(f"❌ Periodic auto-save алдаа: {e}")
+                await asyncio.sleep(60)  # Алдаа гарвал 1 минут хүлээгээд дахин оролдох
 
     async def init_database(self):
         """Lottery database үүсгэх"""
@@ -49,8 +72,7 @@ class Lottery(commands.Cog):
             self.data_dir.mkdir(exist_ok=True)
             
             async with aiosqlite.connect(str(self.db_path)) as db:
-                # Database файл зөв үүсч байгаа эсэхийг шалгах
-                await db.execute('SELECT 1')
+                await db.execute('PRAGMA journal_mode=WAL;')
                 
                 # Тасалбарууд хадгалах хүснэгт
                 await db.execute('''
@@ -74,7 +96,8 @@ class Lottery(commands.Cog):
                         user_id INTEGER,
                         amount INTEGER,
                         date TEXT
-                    )                ''')
+                    )
+                ''')
                 await db.commit()
                 print(f"✅ Lottery database амжилттай үүслээ: {self.db_path}")
                 
@@ -90,7 +113,6 @@ class Lottery(commands.Cog):
                 async with db.execute('SELECT user_id, ticket_count FROM tickets') as cursor:
                     async for row in cursor:
                         self.tickets[row[0]] = row[1]
-                print(f"[DEBUG] Тасалбарууд ачаалагдлаа: {self.tickets}")
                 
                 # Jackpot болон сүүлийн сугалааны мэдээлэл ачаалах
                 async with db.execute('SELECT jackpot, last_draw FROM lottery_info WHERE id = 1') as cursor:
@@ -114,40 +136,45 @@ class Lottery(commands.Cog):
         except Exception as e:
             print(f"❌ Lottery data ачаалахад алдаа: {e}")
 
-    async def save_lottery_data(self):
-        """Одоогийн мэдээллийг database-д хадгалах"""
-        # Database болон table-г эхлээд шалгаж байна
-        try:
-            await self.init_database()
-            async with aiosqlite.connect(str(self.db_path)) as db:
-                # Transaction ашиглах
-                await db.execute('BEGIN TRANSACTION')
-                try:
-                    # Тасалбарууд хадгалах
-                    await db.execute('DELETE FROM tickets')
-                    for user_id, count in self.tickets.items():
-                        await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
-                                       (user_id, count))
-                    print(f"[DEBUG] Тасалбарууд хадгалагдлаа: {self.tickets}")
-                    # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
-                    last_draw_str = self.last_draw.isoformat() if self.last_draw else None
-                    await db.execute('''
-                        INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
-                        VALUES (1, ?, ?)
-                    ''', (self.jackpot, last_draw_str))
-                    await db.execute('COMMIT')
-                    print(f"✅ Lottery data амжилттай хадгалагдлаа - Jackpot: {self.jackpot:,}₮, Tickets: {len(self.tickets)}")
-                except Exception as e:
-                    await db.execute('ROLLBACK')
-                    print(f"❌ Transaction rollback: {e}")
-                    raise
-        except Exception as e:
-            print(f"❌ Lottery data хадгалахад алдаа: {e}")
-            # Database алдаа гарвал дахин үүсгэж оролдох
+    async def save_lottery_data(self, max_retries: int = 3):
+        """Одоогийн мэдээллийг database-д хадгалах (retry mechanism-тай)"""
+        for attempt in range(max_retries):
             try:
                 await self.init_database()
-            except Exception as init_error:
-                print(f"❌ Database дахин эхлүүлэхэд алдаа: {init_error}")
+                async with aiosqlite.connect(str(self.db_path)) as db:
+                    await db.execute('PRAGMA journal_mode=WAL')
+                    
+                    # Transaction ашиглах
+                    await db.execute('BEGIN TRANSACTION')
+                    try:
+                        # Тасалбарууд хадгалах
+                        await db.execute('DELETE FROM tickets')
+                        for user_id, count in self.tickets.items():
+                            await db.execute('INSERT INTO tickets (user_id, ticket_count) VALUES (?, ?)', 
+                                           (user_id, count))
+                        
+                        # Jackpot болон сүүлийн сугалааны мэдээлэл хадгалах
+                        last_draw_str = self.last_draw.isoformat() if self.last_draw else None
+                        await db.execute('''
+                            INSERT OR REPLACE INTO lottery_info (id, jackpot, last_draw) 
+                            VALUES (1, ?, ?)
+                        ''', (self.jackpot, last_draw_str))
+                        
+                        await db.execute('COMMIT')
+                        print(f"✅ Lottery data амжилттай хадгалагдлаа (attempt {attempt + 1}) - Jackpot: {self.jackpot:,}₮, Tickets: {len(self.tickets)}")
+                        return  # Амжилттай болсон бол loop-аас гарах
+                        
+                    except Exception as e:
+                        await db.execute('ROLLBACK')
+                        print(f"❌ Transaction rollback (attempt {attempt + 1}): {e}")
+                        raise
+                        
+            except Exception as e:
+                print(f"❌ Lottery data хадгалахад алдаа (attempt {attempt + 1}): {e}")
+                if attempt == max_retries - 1:
+                    print(f"❌ Lottery data хадгалах {max_retries} удаа оролдсон ч амжилтгүй!")
+                else:
+                    await asyncio.sleep(0.5)
 
     async def add_winner(self, user_id: int, amount: int, date: datetime):
         """Ялагчийг database-д хадгалах"""
@@ -165,9 +192,29 @@ class Lottery(commands.Cog):
 
     async def cog_unload(self):
         """Cog унтрахад өгөгдлийг хадгалах"""
-        await self.save_lottery_data()
+        print("🔄 Lottery cog унтарч байна, өгөгдөл хадгалж байна...")
+        try:
+            await self.save_lottery_data()
+            print("✅ Lottery data амжилттай хадгалагдлаа (cog_unload)")
+        except Exception as e:
+            print(f"❌ Lottery data хадгалахад алдаа (cog_unload): {e}")
+        
         if self.lottery_task.is_running():
             self.lottery_task.cancel()
+            print("🛑 Lottery task зогсоогдлоо")
+            
+        if self.auto_save_task and not self.auto_save_task.done():
+            self.auto_save_task.cancel()
+            print("🛑 Auto-save task зогсоогдлоо")
+
+    async def save_on_bot_shutdown(self):
+        """Бот унтрах үед дуудагдах функц"""
+        print("🚨 Bot shutdown detected, lottery data хадгалж байна...")
+        try:
+            await self.save_lottery_data()
+            print("✅ Emergency lottery data save амжилттай")
+        except Exception as e:
+            print(f"❌ Emergency lottery data save алдаа: {e}")
 
     @property
     def bank(self) -> Any:
@@ -231,8 +278,15 @@ class Lottery(commands.Cog):
         self.tickets[user_id] = prev + count
         self.jackpot += total_price
         
-        # Database-д хадгалах
-        await self.save_lottery_data()
+        # Database-д immediate хадгалах (data loss-ээс сэргийлэх)
+        try:
+            await self.save_lottery_data()
+            self.last_save = datetime.now()
+            print(f"✅ Lottery data auto-saved: User {user_id} bought {count} tickets")
+        except Exception as save_error:
+            print(f"❌ Auto-save алдаа: {save_error}")
+            # Save алдаа гарсан ч хэрэглэгчид амжилттай гэж хэлнэ
+            # Дараагийн save үед засагдах магадлалтай
         
         embed = discord.Embed(
             title='🎟️ Сугалааны тасалбар амжилттай авлаа!',
@@ -368,20 +422,54 @@ class Lottery(commands.Cog):
                     )
                     
                     await channel.send(content='@everyone 🎉 **СУГАЛААНЫ ҮНДЭСНИЙ ЯЛАГЧ ТОДОРЛОО!** 🎉', embed=embed)
-                else:
-                    print(f"[ERROR] Сугалааны ялагч зарлах channel.send боломжгүй! Guild: {guild}, Channel: {channel}")
+                    
+                    # Сугалаа дууссаны дараа reset хийх  
                     self.tickets.clear()
                     self.jackpot = 0
                     self.last_draw = now
                     # Database-д өөрчлөлт хадгалах
                     await self.save_lottery_data()
+                    
+                else:
+                    print(f"[ERROR] Сугалааны ялагч зарлах channel.send боломжгүй! Guild: {guild}, Channel: {channel}")
+                    # Channel олдохгүй ч сугалаа явуулах ёстой! Зөвхөн сүүлийн огноог шинэчлэх
+                    if self.tickets:  # Тасалбартай бол сугалаа явуулах
+                        pool = []
+                        for user_id, count in self.tickets.items():
+                            pool.extend([user_id] * count)
+                        winner_id = random.choice(pool)
+                        amount = self.jackpot
+                        
+                        # Ялагчийг database-д хадгалах
+                        await self.add_winner(winner_id, amount, get_mongolia_time())
+                        
+                        # Jackpot-ыг ялагчийн дансанд нэмэх оролдлого
+                        bank = self.bank
+                        if bank:
+                            update_balance = getattr(bank, "update_balance", None)
+                            if callable(update_balance):
+                                try:
+                                    await update_balance('bank', winner_id, amount)  # type: ignore
+                                    print(f"✅ Сугалааны ялагч {winner_id}-д {amount:,}₮ нэмэгдлээ!")
+                                except Exception as e:
+                                    print(f"❌ Jackpot нэмэхэд алдаа: {e}")
+                        
+                        # Сугалаа дууссаны дараа reset хийх
+                        self.tickets.clear()
+                        self.jackpot = 0
+                        
+                    self.last_draw = now
+                    # Database-д өөрчлөлт хадгалах
+                    await self.save_lottery_data()
+                    
         except Exception as e:
-            print(f"Lottery task алдаа: {e}")
-            # Database алдаа гарвал дахин эхлүүлэх оролдлого
+            print(f"❌ Lottery task алдаа: {e}")
+            # Алдаа гарсан ч өгөгдлийг хадгалах оролдлого хийх
             try:
-                await self.init_database()
-            except Exception as init_error:
-                print(f"Database дахин эхлүүлэхэд алдаа: {init_error}")
+                await self.save_lottery_data()
+                print("✅ Lottery data хадгалагдлаа (exception дараа)")
+            except Exception as save_error:
+                print(f"❌ Lottery data хадгалахад алдаа (exception дараа): {save_error}")
 
     @lottery_task.before_loop
     async def before_lottery_task(self):
