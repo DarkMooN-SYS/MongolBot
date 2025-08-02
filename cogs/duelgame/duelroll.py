@@ -116,49 +116,52 @@ class DuelGameView(discord.ui.View):
         if user_id not in [self.player1_id, self.player2_id]:
             await interaction.response.send_message("❌ Та энэ дуэлд оролцоогүй байна!", ephemeral=True)
             return
-            
-        # Шоо шидсэн эсэхийг шалгах
-        if user_id == self.player1_id and self.player1_rolled:
-            await interaction.response.send_message("❌ Та аль хэдийн шоо шидсэн байна!", ephemeral=True)
-            return
-        elif user_id == self.player2_id and self.player2_rolled:
-            await interaction.response.send_message("❌ Та аль хэдийн шоо шидсэн байна!", ephemeral=True)
-            return
-            
-        # Шооны үр дүн
-        roll_result = random.randint(1, 100)
         
+        # Хэрэглэгч аль нь болохыг тодорхойлох ба шоо шидсэн эсэхийг шалгах
         if user_id == self.player1_id:
+            if self.player1_rolled:
+                await interaction.response.send_message("❌ Та аль хэдийн шоо шидсэн байна!", ephemeral=True)
+                return
+            self.player1_roll = random.randint(1, 100)
             self.player1_rolled = True
-            self.player1_roll = roll_result
-        else:
+            player_name = "Тоглогч 1"
+            roll_result = self.player1_roll
+        else:  # player2
+            if self.player2_rolled:
+                await interaction.response.send_message("❌ Та аль хэдийн шоо шидсэн байна!", ephemeral=True)
+                return
+            self.player2_roll = random.randint(1, 100)
             self.player2_rolled = True
-            self.player2_roll = roll_result
-            
-        # Embed үүсгэх
+            player_name = "Тоглогч 2"
+            roll_result = self.player2_roll
+        
+        # Шоо шидсэний дараа статус үзүүлэх
         embed = discord.Embed(
             title="⚔️ Шооны Дуэл",
+            description=f"<@{self.player1_id}> vs <@{self.player2_id}>",
             color=discord.Color.orange()
         )
         
-        # Тоглогчдын үр дүн
-        player1_status = f"🎲 **{self.player1_roll}**" if self.player1_rolled else "⏳ Хүлээж байна..."
-        player2_status = f"🎲 **{self.player2_roll}**" if self.player2_rolled else "⏳ Хүлээж байна..."
+        # Тоглогчдын шоо
+        if self.player1_rolled:
+            embed.add_field(name="🎲 Тоглогч 1", value=f"<@{self.player1_id}>: **{self.player1_roll}**", inline=True)
+        else:
+            embed.add_field(name="🎲 Тоглогч 1", value=f"<@{self.player1_id}>: *Хүлээж байна...*", inline=True)
+            
+        if self.player2_rolled:
+            embed.add_field(name="🎲 Тоглогч 2", value=f"<@{self.player2_id}>: **{self.player2_roll}**", inline=True)
+        else:
+            embed.add_field(name="🎲 Тоглогч 2", value=f"<@{self.player2_id}>: *Хүлээж байна...*", inline=True)
         
-        embed.add_field(name=f"👤 <@{self.player1_id}>", value=player1_status, inline=True)
-        embed.add_field(name=f"👤 <@{self.player2_id}>", value=player2_status, inline=True)
         embed.add_field(name="💰 Бэлгэдэх дүн", value=f"**{self.bet_amount:,}₮**", inline=True)
         
-        # Хэрэв хоёулаа шидсэн бол үр дүн гаргах
-        if self.player1_rolled and self.player2_rolled:
-            await self.finish_duel(interaction, embed)
-        else:
+        # Хоёулаа шоо шидсэн эсэхийг шалгах
+        if not (self.player1_rolled and self.player2_rolled):
+            embed.add_field(name="⏳ Статус", value="Бусад тоглогчийг хүлээж байна...", inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
-            
-    async def finish_duel(self, interaction: discord.Interaction, embed: discord.Embed):
-        """Дуэл дуусгах"""
+            return
         
-        # Ялагчийг тодорхойлох
+        # Хоёулаа шоо шидсэн бол үр дүн тооцоолох
         if self.player1_roll > self.player2_roll:
             winner_id = self.player1_id
             loser_id = self.player2_id
@@ -170,71 +173,100 @@ class DuelGameView(discord.ui.View):
             winner_roll = self.player2_roll
             loser_roll = self.player1_roll
         else:
-            # Тэнцсэн тохиолдол
-            embed.title = "🤝 Тэнцлээ!"
-            embed.color = discord.Color.yellow()
+            # Тэнцлээ: мөнгө буцаах
+            embed = discord.Embed(
+                title="🤝 Тэнцлээ!",
+                color=discord.Color.yellow()
+            )
             embed.add_field(
                 name="📊 Үр дүн:", 
-                value="Хоёулаа ижил оноо авсан тул тэнцлээ! Мөнгө буцаагдлаа.", 
+                value=f"<@{self.player1_id}>: **{self.player1_roll}**\n<@{self.player2_id}>: **{self.player2_roll}**\n\nХоёулаа ижил оноо авсан тул тэнцлээ! Мөнгө буцаагдлаа.", 
                 inline=False
             )
-            
-            # Тэнцсэн тохиолдолд мөнгө буцаах
-            try:
-                bank_cog = self.cog.bot.get_cog('Bank')
-                if bank_cog and hasattr(bank_cog, 'update_balance'):
-                    await bank_cog.update_balance('bank', self.player1_id, self.bet_amount)  # type: ignore
-                    await bank_cog.update_balance('bank', self.player2_id, self.bet_amount)  # type: ignore
-            except Exception as e:
-                logger.error(f"Error refunding money on tie: {e}")
-            
-            await interaction.response.edit_message(embed=embed, view=None)
-            return
-            
-        # Мөнгө шилжүүлэх
-        try:
             bank_cog = self.cog.bot.get_cog('Bank')
             if bank_cog and hasattr(bank_cog, 'update_balance'):
-                # Хожигчийн мөнгийг зөвхөн нийт бооцооны хэмжээгээр нэмнэ (хоёр тоглогчийн нийлбэр)
-                total_winnings = self.bet_amount * 2
+                # Refund player1
+                try:
+                    get_balance = getattr(bank_cog, 'get_balance', None)
+                    bal1 = None
+                    if callable(get_balance):
+                        if asyncio.iscoroutinefunction(get_balance):
+                            bal1 = await get_balance(self.player1_id, 'bank')
+                        else:
+                            bal1 = get_balance(self.player1_id, 'bank')
+                        bal1_int = bal1 if isinstance(bal1, (int, float)) else 0
+                        if bal1 is None or bal1_int + self.bet_amount >= 0:
+                            await bank_cog.update_balance('bank', self.player1_id, self.bet_amount)  # type: ignore
+                            logger.info(f"Refunded {self.bet_amount}₮ to player1 (tie)")
+                        else:
+                            logger.warning(f"Refund for player1 would cause negative balance!")
+                    else:
+                        await bank_cog.update_balance('bank', self.player1_id, self.bet_amount)  # type: ignore
+                        logger.info(f"Refunded {self.bet_amount}₮ to player1 (tie, no balance check)")
+                except Exception as e:
+                    logger.error(f"Error refunding player1 on tie: {e}")
+                # Refund player2
+                try:
+                    get_balance = getattr(bank_cog, 'get_balance', None)
+                    bal2 = None
+                    if callable(get_balance):
+                        if asyncio.iscoroutinefunction(get_balance):
+                            bal2 = await get_balance(self.player2_id, 'bank')
+                        else:
+                            bal2 = get_balance(self.player2_id, 'bank')
+                        bal2_int = bal2 if isinstance(bal2, (int, float)) else 0
+                        if bal2 is None or bal2_int + self.bet_amount >= 0:
+                            await bank_cog.update_balance('bank', self.player2_id, self.bet_amount)  # type: ignore
+                            logger.info(f"Refunded {self.bet_amount}₮ to player2 (tie)")
+                        else:
+                            logger.warning(f"Refund for player2 would cause negative balance!")
+                    else:
+                        await bank_cog.update_balance('bank', self.player2_id, self.bet_amount)  # type: ignore
+                        logger.info(f"Refunded {self.bet_amount}₮ to player2 (tie, no balance check)")
+                except Exception as e:
+                    logger.error(f"Error refunding player2 on tie: {e}")
+            else:
+                logger.warning("Bank cog or update_balance not available for refund.")
+            await interaction.response.edit_message(embed=embed, view=None)
+            return
+
+        # Ялагч тодорхойлогдсон - мөнгө шилжүүлэх
+        bank_cog = self.cog.bot.get_cog('Bank')
+        total_winnings = self.bet_amount * 2
+        result_embed = discord.Embed(title="🏆 Дуэл Дууслаа!", color=discord.Color.gold())
+        
+        if bank_cog and hasattr(bank_cog, 'update_balance'):
+            try:
                 await bank_cog.update_balance('bank', winner_id, total_winnings)  # type: ignore
-                embed.title = "🏆 Дуэл Дууслаа!"
-                embed.color = discord.Color.gold()
-                embed.add_field(
+                logger.info(f"Paid out {total_winnings}₮ to winner {winner_id}")
+                
+                result_embed.add_field(
                     name="🎉 Ялагч:", 
                     value=f"<@{winner_id}> - **{winner_roll}** оноо", 
                     inline=False
                 )
-                embed.add_field(
+                result_embed.add_field(
                     name="😢 Ялагдсан:", 
                     value=f"<@{loser_id}> - **{loser_roll}** оноо", 
                     inline=False
                 )
-                embed.add_field(
+                result_embed.add_field(
                     name="💰 Хожсон дүн:", 
                     value=f"**{total_winnings:,}₮**", 
                     inline=False
                 )
-            else:
-                embed.add_field(name="❌ Алдаа:", value="Банкны систем олдсонгүй!", inline=False)
-        except Exception as e:
-            logger.error(f"Error in duel finish: {e}")
-            embed.add_field(name="❌ Алдаа:", value="Мөнгө шилжүүлэхэд алдаа гарлаа!", inline=False)
-            
-        # Try to edit the interaction response, fallback to followup if already responded
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.edit_message(embed=embed, view=None)
-            else:
-                await interaction.followup.send(embed=embed, ephemeral=False)
-        except Exception as e:
-            logger.error(f"Error sending duel result: {e}")
-            # Fallback: send result in channel if interaction failed (e.g. Unknown interaction)
-            try:
-                if interaction.channel and isinstance(interaction.channel, discord.TextChannel):
-                    await interaction.channel.send(embed=embed)
-            except Exception as e2:
-                logger.error(f"Error sending duel result fallback: {e2}")
+                
+            except Exception as e:
+                logger.error(f"Error paying out winner: {e}")
+                result_embed.color = discord.Color.red()
+                result_embed.title = "❌ Алдаа!"
+                result_embed.add_field(name="❌ Алдаа:", value="Мөнгө шилжүүлэхэд алдаа гарлаа!", inline=False)
+        else:
+            result_embed.color = discord.Color.red()
+            result_embed.title = "❌ Алдаа!"
+            result_embed.add_field(name="❌ Алдаа:", value="Банкны систем олдсонгүй!", inline=False)
+        
+        await interaction.response.edit_message(embed=result_embed, view=None)
         
     async def on_timeout(self) -> None:
         embed = discord.Embed(
@@ -259,14 +291,20 @@ class DuelGameView(discord.ui.View):
             pass
 
 class RollDuel(commands.Cog):
-    import re
-
+    """Шооны дуэл - 1v1 тоглоом"""
+    
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+        self.active_duels: Dict[int, bool] = {}  # Идэвхтэй дуэлүүд
+    
     def parse_bet(self, bet_str: Optional[str]) -> Optional[float]:
+        """Бэлгэдэх дүнг parse хийх (1k = 1000, 1m = 1000000 гэх мэт)"""
+        import re
         if bet_str is None:
             return None
         bet_str = bet_str.lower().strip().replace(",", ".")
         multipliers = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
-        match = self.re.fullmatch(r"(\d+(\.\d+)?)([kmbt]?)", bet_str)
+        match = re.fullmatch(r"(\d+(\.\d+)?)([kmbt]?)", bet_str)
         if not match:
             return None
         num, _, suffix = match.groups()
@@ -274,11 +312,6 @@ class RollDuel(commands.Cog):
             return float(num) * multipliers.get(suffix, 1)
         except ValueError:
             return None
-    """Шооны дуэл - 1v1 тоглоом"""
-    
-    def __init__(self, bot: commands.Bot):
-        self.bot = bot
-        self.active_duels: Dict[int, bool] = {}  # Идэвхтэй дуэлүүд
         
     @commands.command(name='duelroll')
     @commands.cooldown(1, 30, commands.BucketType.user)
@@ -290,15 +323,24 @@ class RollDuel(commands.Cog):
         """
         # Parse bet amount using parse_bet
         bet_parsed = self.parse_bet(str(bet_amount))
-        if bet_parsed is None or bet_parsed != int(bet_parsed):
+        if bet_parsed is None:
             embed = discord.Embed(
                 title="❌ Алдаа!",
-                description="Бэлгэдэх дүнг зөвхөн бүхэл тоогоор оруулна уу! Жишээ: mduelroll @хэрэглэгч 1000, mduelroll @хэрэглэгч 1k",
+                description="Бэлгэдэх дүнг буруу форматаар оруулсан байна! \n\n**Зөв форматууд:**\n• `1000` - энгийн тоо\n• `1k` - 1,000\n• `1.5k` - 1,500\n• `1m` - 1,000,000",
                 color=discord.Color.red()
             )
             await ctx.send(embed=embed)
             return
+        
         bet_amount_int = int(bet_parsed)
+        if bet_amount_int != bet_parsed:  # Бүхэл тоо эсэхийг шалгах
+            embed = discord.Embed(
+                title="❌ Алдаа!",
+                description="Бэлгэдэх дүнг зөвхөн бүхэл тоогоор оруулна уу!",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
         if ctx.guild is None or not await is_channel_enabled(ctx.guild.id, ctx.channel.id):
             return
         challenger = ctx.author
@@ -333,7 +375,7 @@ class RollDuel(commands.Cog):
             await ctx.send(embed=embed)
             return
             
-        if bet_amount_int > 5000000:
+        if bet_amount_int > 1000000:
             embed = discord.Embed(
                 title="❌ Алдаа!",
                 description="Хамгийн их бэлгэдэх дүн **5,000,000₮** байх ёстой!",
