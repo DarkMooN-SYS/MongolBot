@@ -1315,6 +1315,16 @@ class Job(commands.Cog):
         if self.conn:
             await self.conn.close()
 
+    async def enforce_max_levels(self):
+        """
+        Ensure that rob_level and hack_level do not exceed the maximum allowed value (30).
+        """
+        if self.conn is None:
+            return
+        await self.conn.execute("UPDATE job SET rob_level = 30 WHERE rob_level > 30")
+        await self.conn.execute("UPDATE job SET hack_level = 30 WHERE hack_level > 30")
+        await self.conn.commit()
+
 async def setup(bot: commands.Bot) -> None:
     """
     Bot дээр энэхүү Cog-ийг ачаална.
