@@ -289,8 +289,8 @@ class Music(commands.Cog):
         self.queues = {}  # Guild бүрт тусдаа queue
         self.players_connected = set()  # Холбогдсон player-уудыг хадгалах
         self.guild_volumes = {}  # Guild тус бүрийн volume хадгалах
-        self.default_volume = 1  # Default volume 50%
-        
+        self.default_volume = 10  # Default volume 10%
+
         # Auto-disconnect tracking
         self.last_activity = {}  # Guild-ийн сүүлийн идэвхжил
         self.idle_check_task = self.bot.loop.create_task(self.check_idle_players())
@@ -339,13 +339,16 @@ class Music(commands.Cog):
         }
 
     def is_youtube_url(self, url: str) -> bool:
-        """🔗 YouTube URL эсэхийг шалгах"""
+        """🔗 YouTube URL эсэхийг шалгах (сайжруулсан)"""
         youtube_patterns = [
             'youtube.com/watch',
             'youtu.be/',
             'music.youtube.com/watch',
             'youtube.com/playlist',
-            'music.youtube.com/playlist'
+            'music.youtube.com/playlist',
+            'youtube.com/shorts/',  # YouTube Shorts дэмжлэг
+            'm.youtube.com/watch',  # Mobile YouTube
+            'youtube.com/embed/'    # Embedded links
         ]
         return any(pattern in url.lower() for pattern in youtube_patterns)
     
@@ -355,8 +358,9 @@ class Music(commands.Cog):
         if (search.startswith('http') or self.is_youtube_url(search)):
             return search
         else:
-            # YouTube search query болгох
-            return f'ytsearch:{search}'
+            # Multiple search providers with fallback
+            # Try different search prefixes for better compatibility
+            return f'ytmsearch:{search}'  # YouTube Music search оролдох
     
     def get_youtube_video_id(self, url: str) -> Optional[str]:
         """🆔 YouTube video ID авах"""
@@ -627,8 +631,8 @@ class Music(commands.Cog):
             )
         else:
             loading_embed = self.create_music_embed(
-                f"{self.emojis['loading']} YouTube-ээс дуу хайж байна...",
-                f"**Хайлт:** `{search}`",
+                f"{self.emojis['loading']} Дуу хайж байна...",
+                f"**Хайлт:** `{search}`\n**Query:** `ytmsearch:{search}`",
                 'warning'
             )
         loading_msg = await ctx.send(embed=loading_embed)
@@ -638,14 +642,30 @@ class Music(commands.Cog):
             search_query = self.format_search_query(search)
             tracks = await wavelink.Pool.fetch_tracks(search_query)
             
+            # Хэрэв ytmsearch ажиллахгүй бол ytsearch оролдох
+            if not tracks and not (search.startswith('http') or self.is_youtube_url(search)):
+                print(f"🔄 ytmsearch:{search} ажиллахгүй байна, ytsearch оролдож байна...")
+                search_query = f'ytsearch:{search}'
+                tracks = await wavelink.Pool.fetch_tracks(search_query)
+                
+            # Хэрэв ytsearch ч ажиллахгүй бол scsearch оролдох
+            if not tracks and not (search.startswith('http') or self.is_youtube_url(search)):
+                print(f"🔄 ytsearch:{search} ажиллахгүй байна, scsearch оролдож байна...")
+                search_query = f'scsearch:{search}'
+                tracks = await wavelink.Pool.fetch_tracks(search_query)
+            
             if not tracks:
                 embed = self.create_music_embed(
                     f"{self.emojis['error']} Дуу олдсонгүй",
-                    f"**'{search}'** гэсэн хайлтаар дуу олдсонгүй.\n\n"
+                    f"**'{search}'** хайлтаар дуу олдсонгүй.\n\n"
+                    f"🔍 **Туршсан хайлтууд:**\n"
+                    f"• `ytmsearch:{search}` (YouTube Music)\n"
+                    f"• `ytsearch:{search}` (YouTube)\n"
+                    f"• `scsearch:{search}` (SoundCloud)\n\n"
                     f"💡 **Зөвлөмж:**\n"
                     f"• Дууны нэр, зохиогчийн нэрийг бүрэн бичнэ үү\n"
-                    f"• YouTube URL ашиглана уу\n"
-                    f"• Өөр түлхүүр үг ашиглана уу",
+                    f"• YouTube URL шууд ашиглана уу\n"
+                    f"• Англи үсгээр оролдоно уу",
                     'error'
                 )
                 embed.add_field(
@@ -989,6 +1009,112 @@ class Music(commands.Cog):
         except Exception as e:
             embed = self.create_music_embed(
                 f"{self.emojis['error']} Volume тохируулахад алдаа гарлаа",
+                f"**Алдаа:** `{str(e)[:100]}...`",
+                'error'
+            )
+            await ctx.send(embed=embed)
+
+    @commands.command(name='test_search', aliases=['testsearch'])
+    async def test_search(self, ctx: commands.Context, *, search: str):
+        """🧪 Search providers тест хийх"""
+        if not ctx.guild:
+            return
+            
+        embed = self.create_music_embed(
+            f"{self.emojis['loading']} Search providers тест хийж байна...",
+            f"**Хайлт:** `{search}`",
+            'warning'
+        )
+        msg = await ctx.send(embed=embed)
+        
+        providers = ['ytmsearch', 'ytsearch', 'scsearch']
+        results = {}
+        
+        for provider in providers:
+            try:
+                query = f'{provider}:{search}'
+                print(f"🔍 Туршиж байна: {query}")
+                tracks = await wavelink.Pool.fetch_tracks(query)
+                
+                if tracks:
+                    results[provider] = f"✅ {len(tracks)} дуу олдлоо"
+                    if len(tracks) > 0:
+                        results[provider] += f"\n📌 Эхний дуу: `{tracks[0].title[:50]}...`"
+                else:
+                    results[provider] = "❌ Дуу олдсонгүй"
+                    
+            except Exception as e:
+                results[provider] = f"❌ Алдаа: `{str(e)[:50]}...`"
+        
+        # Results харуулах
+        embed = self.create_music_embed(
+            f"{self.emojis['info']} Search Provider Test Results",
+            f"**Хайлт:** `{search}`",
+            'info'
+        )
+        
+        for provider, result in results.items():
+            embed.add_field(
+                name=f"🔍 {provider.upper()}",
+                value=result,
+                inline=False
+            )
+        
+        await msg.edit(embed=embed)
+
+    @commands.command(name='lavalink_info', aliases=['linfo'])
+    async def lavalink_info(self, ctx: commands.Context):
+        """🔧 Lavalink server мэдээлэл"""
+        if not ctx.guild:
+            return
+            
+        try:
+            # Node мэдээлэл авах
+            nodes = wavelink.Pool.nodes
+            if not nodes:
+                embed = self.create_music_embed(
+                    f"{self.emojis['error']} Lavalink холбогдоогүй",
+                    "Lavalink server-т холбогдоогүй байна.",
+                    'error'
+                )
+                await ctx.send(embed=embed)
+                return
+            
+            node = list(nodes.values())[0]  # Эхний node авах
+            
+            embed = self.create_music_embed(
+                f"{self.emojis['info']} Lavalink Server Мэдээлэл",
+                f"**Server:** `{node.uri}`",
+                'info'
+            )
+            
+            embed.add_field(
+                name="🔗 Холболт",
+                value=f"**URI:** `{node.uri}`\n"
+                      f"**Players:** `{len(node.players) if hasattr(node, 'players') else 'N/A'}`",
+                inline=True
+            )
+            
+            # Basic node info
+            embed.add_field(
+                name="📊 Node мэдээлэл",  
+                value=f"**Identifier:** `{getattr(node, 'identifier', 'default')}`\n"
+                      f"**Session ID:** `{getattr(node, 'session_id', 'N/A')[:8]}...`" if hasattr(node, 'session_id') else "**Session:** `N/A`",
+                inline=True
+            )
+            
+            embed.add_field(
+                name="🎵 Guild мэдээлэл",
+                value=f"**Connected Guilds:** `{len(self.players_connected)}`\n"
+                      f"**Active Queues:** `{len(self.queues)}`",
+                inline=True
+            )
+            
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            embed = self.create_music_embed(
+                f"{self.emojis['error']} Мэдээлэл авахад алдаа",
                 f"**Алдаа:** `{str(e)[:100]}...`",
                 'error'
             )
