@@ -46,6 +46,7 @@ class Bank(commands.Cog):
     async def setup_database(self) -> None:
         self.conn = await get_async_connection('economy')
         await self.conn.execute("PRAGMA journal_mode=WAL;")
+        await self.conn.execute("PRAGMA busy_timeout = 10000;")  # 10 second timeout for locks
         await self.conn.execute("""
             CREATE TABLE IF NOT EXISTS bank (
                 user_id INTEGER PRIMARY KEY,
@@ -105,27 +106,51 @@ class Bank(commands.Cog):
         await self.ensure_connection()
         if self.conn is None:
             raise RuntimeError("Database connection is not established!")
-        async with self.db_lock:
-            async with self.conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
-                result = await cursor.fetchone()
-                current_balance = int(result[0]) if result and result[0] is not None else 0
-            new_balance = current_balance + amount
-            if new_balance < 0:
-                return current_balance
-            if date_column:
-                await self.conn.execute(f'''
-                    INSERT INTO {table_name} (user_id, balance, {date_column}, due_date)
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET balance = ?, {date_column} = ?, due_date = COALESCE(?, due_date)
-                ''', (user_id, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date))
-            else:
-                await self.conn.execute(f'''
-                    INSERT INTO {table_name} (user_id, balance)
-                    VALUES (?, ?)
-                    ON CONFLICT(user_id) DO UPDATE SET balance = ?
-                ''', (user_id, new_balance, new_balance))
-            await self.conn.commit()
-            return new_balance
+        
+        # Retry mechanism for database locks
+        max_retries = 3
+        retry_delay = 0.1  # Start with 100ms
+        
+        for attempt in range(max_retries):
+            try:
+                async with self.db_lock:
+                    await self.conn.execute("PRAGMA busy_timeout = 10000")  # 10 seconds
+                    
+                    async with self.conn.execute(f"SELECT balance FROM {table_name} WHERE user_id=?", (user_id,)) as cursor:
+                        result = await cursor.fetchone()
+                        current_balance = int(result[0]) if result and result[0] is not None else 0
+                    
+                    new_balance = current_balance + amount
+                    if new_balance < 0:
+                        return current_balance
+                    
+                    if date_column:
+                        await self.conn.execute(f'''
+                            INSERT INTO {table_name} (user_id, balance, {date_column}, due_date)
+                            VALUES (?, ?, ?, ?)
+                            ON CONFLICT(user_id) DO UPDATE SET balance = ?, {date_column} = ?, due_date = COALESCE(?, due_date)
+                        ''', (user_id, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date, new_balance, datetime.now().strftime("%Y-%m-%d"), due_date))
+                    else:
+                        await self.conn.execute(f'''
+                            INSERT INTO {table_name} (user_id, balance)
+                            VALUES (?, ?)
+                            ON CONFLICT(user_id) DO UPDATE SET balance = ?
+                        ''', (user_id, new_balance, new_balance))
+                    
+                    await self.conn.commit()
+                    return new_balance
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ update_balance алдаа (attempt {attempt + 1}/{max_retries}): {e}")
+                if "database is locked" in str(e).lower() and attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    raise e
+        
+        # If we get here, all retries failed
+        raise RuntimeError(f"Failed to update balance after {max_retries} attempts")
 
     async def get_max_loan_for_user(self, user_id: int) -> int:
         """VIP хэрэглэгчийн зээлийн дээд хэмжээг авах"""
@@ -672,120 +697,160 @@ class Bank(commands.Cog):
         if self.conn is None:
             logger.error("Database connection is not established!")
             return
-        try:
-            async with self.db_lock:
-                async with self.conn.execute("SELECT user_id, due_date, balance, perma_block FROM loans WHERE balance > 0 AND due_date IS NOT NULL") as cursor:
-                    rows = await cursor.fetchall()
-                for row in rows:
-                    user_id, due_date_str, loan_balance, perma_block = row
-                    if perma_block == 1:
-                        continue
-                    try:
-                        due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
-                    except Exception as date_error:
-                        logger.warning(f"User {user_id} due_date parse error: {date_error}")
-                        continue
-                    if due_date < datetime.now().date():
-                        # --- Банк, халаас, хадгаламжийн одоогийн үлдэгдлийг авах ---
-                        bank_balance = 0
-                        economy_balance = 0
-                        savings_balance = 0
-                        async with self.conn.execute("SELECT balance FROM bank WHERE user_id=?", (user_id,)) as c:
-                            r = await c.fetchone()
-                            if r and r[0] is not None:
-                                bank_balance = int(r[0])
-                        async with self.conn.execute("SELECT balance FROM economy WHERE user_id=?", (user_id,)) as c:
-                            r = await c.fetchone()
-                            if r and r[0] is not None:
-                                economy_balance = int(r[0])
-                        async with self.conn.execute("SELECT balance FROM savings WHERE user_id=?", (user_id,)) as c:
-                            r = await c.fetchone()
-                            if r and r[0] is not None:
-                                savings_balance = int(r[0])
+            
+        # Retry mechanism for database locks
+        max_retries = 3
+        retry_delay = 1.0  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                # Use wait_for with timeout to prevent indefinite blocking
+                await asyncio.wait_for(self._process_overdue_loans_inner(), timeout=30.0)
+                
+                # If we reach here, the operation was successful
+                logger.info("✅ process_overdue_loans амжилттай дууслаа")
+                return
+                
+            except asyncio.TimeoutError:
+                logger.warning(f"⏰ process_overdue_loans timeout (attempt {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    logger.error("❌ process_overdue_loans timeout дараа нь амжилтгүй боллоо")
+                    return
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ process_overdue_loans алдаа (attempt {attempt + 1}/{max_retries}): {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    logger.error(f"❌ process_overdue_loans эцсийн алдаа: {e}")
+                    return
 
-                        # --- Хэрвээ бүх үлдэгдэл 0 бол алгасана ---
-                        if bank_balance == 0 and economy_balance == 0 and savings_balance == 0:
-                            logger.info(f"User {user_id} has zero balances, skipping deduction.")
-                            await self.conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
-                            await self.conn.commit()
-                            continue
+    async def _process_overdue_loans_inner(self) -> None:
+        """Helper method for processing overdue loans"""
+        if self.conn is None:
+            raise RuntimeError("Database connection is not established!")
+            
+        async with self.db_lock:
+            # Set busy timeout for SQLite
+            await self.conn.execute("PRAGMA busy_timeout = 10000")  # 10 seconds
+            
+            async with self.conn.execute("SELECT user_id, due_date, balance, perma_block FROM loans WHERE balance > 0 AND due_date IS NOT NULL") as cursor:
+                rows = await cursor.fetchall()
+                
+            for row in rows:
+                user_id, due_date_str, loan_balance, perma_block = row
+                if perma_block == 1:
+                    continue
+                try:
+                    due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+                except Exception as date_error:
+                    logger.warning(f"User {user_id} due_date parse error: {date_error}")
+                    continue
+                if due_date < datetime.now().date():
+                    # --- Банк, халаас, хадгаламжийн одоогийн үлдэгдлийг авах ---
+                    bank_balance = 0
+                    economy_balance = 0
+                    savings_balance = 0
+                    async with self.conn.execute("SELECT balance FROM bank WHERE user_id=?", (user_id,)) as c:
+                        r = await c.fetchone()
+                        if r and r[0] is not None:
+                            bank_balance = int(r[0])
+                    async with self.conn.execute("SELECT balance FROM economy WHERE user_id=?", (user_id,)) as c:
+                        r = await c.fetchone()
+                        if r and r[0] is not None:
+                            economy_balance = int(r[0])
+                    async with self.conn.execute("SELECT balance FROM savings WHERE user_id=?", (user_id,)) as c:
+                        r = await c.fetchone()
+                        if r and r[0] is not None:
+                            savings_balance = int(r[0])
 
-                        # --- Зөвхөн эерэг үлдэгдэлтэй данснаас суутгах ---
-                        remaining_loan = loan_balance
-                        deduct_from_bank = 0
-                        deduct_from_economy = 0
-                        deduct_from_savings = 0
-
-                        # Эхлээд банкнаас суутгах
-                        if bank_balance > 0 and remaining_loan > 0:
-                            deduct_from_bank = min(bank_balance, remaining_loan)
-                            remaining_loan -= deduct_from_bank
-                        # Дараа нь халааснаас суутгах
-                        if economy_balance > 0 and remaining_loan > 0:
-                            deduct_from_economy = min(economy_balance, remaining_loan)
-                            remaining_loan -= deduct_from_economy
-                        # Эцэст хадгаламжаас суутгах
-                        if savings_balance > 0 and remaining_loan > 0:
-                            deduct_from_savings = min(savings_balance, remaining_loan)
-                            remaining_loan -= deduct_from_savings
-
-                        # Нийт суутгасан дүн
-                        deducted = deduct_from_bank + deduct_from_economy + deduct_from_savings
-                        logger.info(f"User {user_id}: Deducted {deducted} (Bank: {deduct_from_bank}, Economy: {deduct_from_economy}, Savings: {deduct_from_savings})")
-
-                        # update_balance-ийг дуудахын оронд шууд UPDATE хийнэ
-                        if deduct_from_bank > 0:
-                            await self.conn.execute("UPDATE bank SET balance = balance - ? WHERE user_id = ?", (deduct_from_bank, user_id))
-                        if deduct_from_economy > 0:
-                            await self.conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (deduct_from_economy, user_id))
-                        if deduct_from_savings > 0:
-                            await self.conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (deduct_from_savings, user_id))
-                        if deducted > 0:
-                            await self.conn.execute("UPDATE loans SET balance = balance - ? WHERE user_id = ?", (deducted, user_id))
-                        # --- Одоо perma_block-г 1 болгож тэмдэглэнэ ---
+                    # --- Хэрвээ бүх үлдэгдэл 0 бол алгасана ---
+                    if bank_balance == 0 and economy_balance == 0 and savings_balance == 0:
+                        logger.info(f"User {user_id} has zero balances, skipping deduction.")
                         await self.conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
                         await self.conn.commit()
+                        continue
 
-                        # --- Хэрэглэгчдэд DM мэдэгдэл илгээх ---
-                        try:
-                            user = self.bot.get_user(user_id)
-                            if user:
-                                embed = discord.Embed(
-                                    title="🚨 Зээлийн төлбөр автоматаар суутгалаа",
-                                    description="Таны зээлийн хугацаа хэтрсэн тул автоматаар мөнгө суутгалаа.",
-                                    color=0xe74c3c  # Улаан өнгө
-                                )
-                                embed.add_field(
-                                    name="💰 Суутгасан дүн",
-                                    value=f"{deducted:,}₮",
-                                    inline=True
-                                )
-                                embed.add_field(
-                                    name="📅 Огноо",
-                                    value=datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                    inline=True
-                                )
-                                embed.add_field(
-                                    name="📊 Суутгасан эх үүсвэр",
-                                    value=(
-                                        f"🏦 Банк: {deduct_from_bank:,}₮\n"
-                                        f"💰 Халаас: {deduct_from_economy:,}₮\n"
-                                        f"💎 Хадгаламж: {deduct_from_savings:,}₮"
-                                    ),
-                                    inline=False
-                                )
-                                embed.add_field(
-                                    name="⚠️ Анхааруулга",
-                                    value="Та дахин зээл авах боломжгүй болсон. Админтай холбогдоно уу.",
-                                    inline=False
-                                )
-                                embed.set_footer(text="MongolBot Banking System")
-                                await user.send(embed=embed)
-                                logger.info(f"✅ User {user_id}-д зээлийн суутгалын мэдэгдэл илгээлээ")
-                        except Exception as dm_error:
-                            logger.warning(f"⚠️ User {user_id}-д DM илгээж чадсангүй: {dm_error}")
-        except Exception as e:
-            logger.error(f"process_overdue_loans алдаа: {e}")
+                    # --- Зөвхөн эерэг үлдэгдэлтэй данснаас суутгах ---
+                    remaining_loan = loan_balance
+                    deduct_from_bank = 0
+                    deduct_from_economy = 0
+                    deduct_from_savings = 0
+
+                    # Эхлээд банкнаас суутгах
+                    if bank_balance > 0 and remaining_loan > 0:
+                        deduct_from_bank = min(bank_balance, remaining_loan)
+                        remaining_loan -= deduct_from_bank
+                    # Дараа нь халааснаас суутгах
+                    if economy_balance > 0 and remaining_loan > 0:
+                        deduct_from_economy = min(economy_balance, remaining_loan)
+                        remaining_loan -= deduct_from_economy
+                    # Эцэст хадгаламжаас суутгах
+                    if savings_balance > 0 and remaining_loan > 0:
+                        deduct_from_savings = min(savings_balance, remaining_loan)
+                        remaining_loan -= deduct_from_savings
+
+                    # Нийт суутгасан дүн
+                    deducted = deduct_from_bank + deduct_from_economy + deduct_from_savings
+                    logger.info(f"User {user_id}: Deducted {deducted} (Bank: {deduct_from_bank}, Economy: {deduct_from_economy}, Savings: {deduct_from_savings})")
+
+                    # update_balance-ийг дуудахын оронд шууд UPDATE хийнэ
+                    if deduct_from_bank > 0:
+                        await self.conn.execute("UPDATE bank SET balance = balance - ? WHERE user_id = ?", (deduct_from_bank, user_id))
+                    if deduct_from_economy > 0:
+                        await self.conn.execute("UPDATE economy SET balance = balance - ? WHERE user_id = ?", (deduct_from_economy, user_id))
+                    if deduct_from_savings > 0:
+                        await self.conn.execute("UPDATE savings SET balance = balance - ? WHERE user_id = ?", (deduct_from_savings, user_id))
+                    if deducted > 0:
+                        await self.conn.execute("UPDATE loans SET balance = balance - ? WHERE user_id = ?", (deducted, user_id))
+                    # --- Одоо perma_block-г 1 болгож тэмдэглэнэ ---
+                    await self.conn.execute("UPDATE loans SET perma_block=1 WHERE user_id=?", (user_id,))
+                    await self.conn.commit()
+
+                    # --- Хэрэглэгчдэд DM мэдэгдэл илгээх ---
+                    try:
+                        user = self.bot.get_user(user_id)
+                        if user:
+                            embed = discord.Embed(
+                                title="🚨 Зээлийн төлбөр автоматаар суутгалаа",
+                                description="Таны зээлийн хугацаа хэтрсэн тул автоматаар мөнгө суутгалаа.",
+                                color=0xe74c3c  # Улаан өнгө
+                            )
+                            embed.add_field(
+                                name="💰 Суутгасан дүн",
+                                value=f"{deducted:,}₮",
+                                inline=True
+                            )
+                            embed.add_field(
+                                name="📅 Огноо",
+                                value=datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                inline=True
+                            )
+                            embed.add_field(
+                                name="📊 Суутгасан эх үүсвэр",
+                                value=(
+                                    f"🏦 Банк: {deduct_from_bank:,}₮\n"
+                                    f"💰 Халаас: {deduct_from_economy:,}₮\n"
+                                    f"💎 Хадгаламж: {deduct_from_savings:,}₮"
+                                ),
+                                inline=False
+                            )
+                            embed.add_field(
+                                name="⚠️ Анхааруулга",
+                                value="Та дахин зээл авах боломжгүй болсон. Админтай холбогдоно уу.",
+                                inline=False
+                            )
+                            embed.set_footer(text="MongolBot Banking System")
+                            await user.send(embed=embed)
+                            logger.info(f"✅ User {user_id}-д зээлийн суутгалын мэдэгдэл илгээлээ")
+                    except Exception as dm_error:
+                        logger.warning(f"⚠️ User {user_id}-д DM илгээж чадсангүй: {dm_error}")
 
     # --- END: process_overdue_loans ---
 
