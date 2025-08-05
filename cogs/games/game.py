@@ -257,7 +257,7 @@ class Game(commands.Cog):
         else:
             await ctx.send("Зөвхөн 'heads' эсвэл 'tails' сонгоно уу!")
             return        # Win streak penalty багасгах (3 удаа дараалан хожсон үед л алдуулах)
-        if self.win_streak[user_id] >= 3:
+        if self.win_streak[user_id] >= 2:
             outcome = 'heads' if choice == 'tails' else 'tails'
             self.win_streak[user_id] = 0
         else:
