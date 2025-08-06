@@ -3,6 +3,7 @@ from discord.ext import commands
 import aiosqlite
 import asyncio
 import os
+from typing import Optional
 
 class Owner(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -78,10 +79,94 @@ class Owner(commands.Cog):
         except Exception as e:
             await ctx.send(f"❌ Алдаа гарлаа: `{e}`")
 
-    @commands.command(name='broadcast', help='Economy.db дахь бүх хэрэглэгчдэд DM илгээх.')
+    def split_message(self, message: str, max_length: int = 2000) -> list:
+        """Урт мессэжийг хэсэг хэсэгээр хуваах"""
+        if len(message) <= max_length:
+            return [message]
+        
+        parts = []
+        current_part = ""
+        
+        # Мөр мөрөөр хуваах
+        lines = message.split('\n')
+        
+        for line in lines:
+            # Хэрэв нэг мөр хэт урт байвал үг үгээр хуваах
+            if len(line) > max_length:
+                words = line.split(' ')
+                for word in words:
+                    if len(current_part + word + ' ') > max_length:
+                        if current_part:
+                            parts.append(current_part.strip())
+                            current_part = word + ' '
+                        else:
+                            # Хэрэв нэг үг хэт урт байвал тэмдэгт тэмдэгтээр хуваах
+                            if len(word) > max_length:
+                                for j in range(0, len(word), max_length):
+                                    parts.append(word[j:j + max_length])
+                            else:
+                                current_part = word + ' '
+                    else:
+                        current_part += word + ' '
+            else:
+                # Энгийн мөр нэмэх
+                if len(current_part + line + '\n') > max_length:
+                    if current_part:
+                        parts.append(current_part.strip())
+                        current_part = line + '\n'
+                    else:
+                        current_part = line + '\n'
+                else:
+                    current_part += line + '\n'
+        
+        # Сүүлийн хэсгийг нэмэх
+        if current_part:
+            parts.append(current_part.strip())
+        
+        return parts
+
+    @commands.command(name='broadcast', help='Economy.db дахь бүх хэрэглэгчдэд эсвэл тодорхой хэрэглэгчдэд DM илгээх.')
     @commands.is_owner()
-    async def broadcast_dm(self, ctx: commands.Context, *, message: str):
-        """Economy.db дахь бүх хэрэглэгчдэд DM илгээх"""
+    async def broadcast_dm(self, ctx: commands.Context, target: Optional[str] = None, *, message: Optional[str] = None):
+        """Economy.db дахь бүх хэрэглэгчдэд эсвэл тодорхой хэрэглэгчдэд DM илгээх
+        
+        Хэрэглээ:
+        !broadcast <message> - Бүх хэрэглэгчдэд илгээх
+        !broadcast @user <message> - Тодорхой хэрэглэгчдэд илгээх
+        !broadcast 123456789 <message> - User ID ашиглах
+        """
+        
+        # Хэрэв target байхгүй бол бүх мессэжийг target болгох
+        if target is None:
+            await ctx.send("❌ Команд буруу бичигдсэн! Жишээ: `!broadcast <message>` эсвэл `!broadcast @user <message>`")
+            return
+            
+        # Хэрэв message байхгүй бол target-ыг message болгох (бүх хэрэглэгчдэд илгээх)
+        if message is None:
+            message = target
+            target_users = []  # Бүх хэрэглэгчдэд илгээх
+        else:
+            # Target-ыг шинжлэх
+            target_users = []
+            
+            # Mention шалгах
+            if target.startswith('<@') and target.endswith('>'):
+                user_id = target[2:-1]
+                if user_id.startswith('!'):
+                    user_id = user_id[1:]
+                try:
+                    target_users.append(int(user_id))
+                except ValueError:
+                    await ctx.send("❌ Буруу mention формат!")
+                    return
+            else:
+                # User ID шалгах
+                try:
+                    target_users.append(int(target))
+                except ValueError:
+                    await ctx.send("❌ Буруу user ID эсвэл mention!")
+                    return
+
         if not message.strip():
             await ctx.send("❌ Мессэж хоосон байна!")
             return
@@ -93,18 +178,26 @@ class Owner(commands.Cog):
             await ctx.send("❌ Economy.db файл олдсонгүй!")
             return
 
+        # Мессэжийг хэсэг хэсэгээр хуваах (Discord embed description хязгаар: 4096)
+        message_parts = self.split_message(message, 4000)
+        
         try:
-            # Эхлэх мессэж
-            status_msg = await ctx.send("🔄 DM илгээж эхэлж байна...")
-            
-            async with aiosqlite.connect(db_path) as db:
-                # Бүх хэрэглэгчийн ID авах
-                async with db.execute("SELECT DISTINCT user_id FROM economy") as cursor:
-                    user_rows = await cursor.fetchall()
-                    user_ids = [row[0] for row in user_rows]
+            # Хэрэв target users тодорхойлогдсон бол тэднийг ашиглах, үгүй бол бүх хэрэглэгчдээс авах
+            if target_users:
+                user_ids = target_users
+                status_msg = await ctx.send(f"🔄 Тодорхой хэрэглэгчдэд DM илгээж байна... ({len(message_parts)} хэсэг)")
+            else:
+                # Эхлэх мессэж
+                status_msg = await ctx.send(f"🔄 DM илгээж эхэлж байна... ({len(message_parts)} хэсэг)")
+                
+                async with aiosqlite.connect(db_path) as db:
+                    # Бүх хэрэглэгчийн ID авах
+                    async with db.execute("SELECT DISTINCT user_id FROM economy") as cursor:
+                        user_rows = await cursor.fetchall()
+                        user_ids = [row[0] for row in user_rows]
 
             if not user_ids:
-                await status_msg.edit(content="❌ Economy.db-д хэрэглэгч олдсонгүй!")
+                await status_msg.edit(content="❌ Илгээх хэрэглэгч олдсонгүй!")
                 return
 
             total_users = len(user_ids)
@@ -119,15 +212,21 @@ class Owner(commands.Cog):
                         user = await self.bot.fetch_user(user_id)
                     
                     if user:
-                        # DM илгээх
-                        embed = discord.Embed(
-                            title="📢 MongolBot Team",
-                            description=message,
-                            color=discord.Color.blue()
-                        )
-                        embed.set_footer(text="MongolBot Development Team")
+                        # Хэсэг хэсэгээр DM илгээх
+                        for part_num, part in enumerate(message_parts, 1):
+                            embed = discord.Embed(
+                                title=f"📢 MongolBot Team {f'({part_num}/{len(message_parts)})' if len(message_parts) > 1 else ''}",
+                                description=part,
+                                color=discord.Color.blue()
+                            )
+                            embed.set_footer(text="MongolBot Development Team")
+                            
+                            await user.send(embed=embed)
+                            
+                            # Хэсэг хоорондын хугацаа
+                            if part_num < len(message_parts):
+                                await asyncio.sleep(0.2)
                         
-                        await user.send(embed=embed)
                         sent_count += 1
                     else:
                         failed_count += 1
@@ -144,21 +243,25 @@ class Owner(commands.Cog):
 
                 # Прогресс харуулах (хэрэв 10-аас илүү хэрэглэгч байвал)
                 if total_users > 10 and (i + 1) % 10 == 0:
-                    await status_msg.edit(content=f"🔄 {i + 1}/{total_users} илгээгдэж байна...")
+                    await status_msg.edit(content=f"🔄 {i + 1}/{total_users} илгээгдэж байна... ({len(message_parts)} хэсэг)")
                 
-                # Rate limiting (0.5 секунд хүлээх)
-                await asyncio.sleep(0.5)
+                # Rate limiting (урт мессэжийн хувьд илүү удаан хүлээх)
+                wait_time = 0.5 + (len(message_parts) * 0.1)
+                await asyncio.sleep(wait_time)
 
             # Дүгнэлт
+            broadcast_type = "тодорхой хэрэглэгчдэд" if target_users else "бүх хэрэглэгчдэд"
             success_embed = discord.Embed(
                 title="✅ DM илгээлт дууслаа!",
                 color=discord.Color.green()
             )
             success_embed.add_field(name="📊 Статистик", value=f"""
+            **Төрөл:** {broadcast_type}
             **Нийт хэрэглэгч:** {total_users}
             **Амжилттай илгээсэн:** {sent_count}
             **Амжилтгүй:** {failed_count}
             **Амжилтын хувь:** {(sent_count/total_users)*100:.1f}%
+            **Мессэжийн хэсэг:** {len(message_parts)}
             """, inline=False)
             
             await status_msg.edit(content="", embed=success_embed)
