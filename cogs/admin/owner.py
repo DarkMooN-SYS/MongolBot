@@ -136,21 +136,21 @@ class Owner(commands.Cog):
         !broadcast 123456789 <message> - User ID ашиглах
         """
         
-        # Хэрэв target байхгүй бол бүх мессэжийг target болгох
+        # Хэрэв target байхгүй бол команд буруу
         if target is None:
             await ctx.send("❌ Команд буруу бичигдсэн! Жишээ: `!broadcast <message>` эсвэл `!broadcast @user <message>`")
             return
             
-        # Хэрэв message байхгүй бол target-ыг message болгох (бүх хэрэглэгчдэд илгээх)
+        target_users = []
+        
+        # Хэрэв message байхгүй бол target-ыг message болгож, бүх хэрэглэгчдэд илгээх
         if message is None:
             message = target
-            target_users = []  # Бүх хэрэглэгчдэд илгээх
+            # target_users хоосон үлдээх - бүх хэрэглэгчдэд илгээх
         else:
-            # Target-ыг шинжлэх
-            target_users = []
-            
-            # Mention шалгах
+            # Target байгаа бол mention эсвэл user ID шалгах
             if target.startswith('<@') and target.endswith('>'):
+                # Mention формат
                 user_id = target[2:-1]
                 if user_id.startswith('!'):
                     user_id = user_id[1:]
@@ -160,12 +160,14 @@ class Owner(commands.Cog):
                     await ctx.send("❌ Буруу mention формат!")
                     return
             else:
-                # User ID шалгах
+                # User ID эсвэл бүх хэрэглэгчдэд илгээх текст шалгах
                 try:
+                    # Хэрэв тоо бол user ID гэж үзэх
                     target_users.append(int(target))
                 except ValueError:
-                    await ctx.send("❌ Буруу user ID эсвэл mention!")
-                    return
+                    # Тоо биш бол target + message-ийг нэгтгэж бүх хэрэглэгчдэд илгээх
+                    message = f"{target} {message}"
+                    # target_users хоосон үлдээх
 
         if not message.strip():
             await ctx.send("❌ Мессэж хоосон байна!")
