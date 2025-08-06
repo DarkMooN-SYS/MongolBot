@@ -366,7 +366,15 @@ class Economy(commands.Cog):
             return [], total_count
         async with self.conn.execute(query, member_ids) as cursor:
             rows = await cursor.fetchall()
-            users = [(int(row[0]), int(row[1])) for row in rows]
+            # Зөвхөн guild-д байгаа хэрэглэгчдийг шүүх
+            users = []
+            for row in rows:
+                user_id = int(row[0])
+                balance = int(row[1])
+                # Guild-д тухайн хэрэглэгч байгаа эсэхийг шалгах
+                member = guild.get_member(user_id)
+                if member is not None:  # Зөвхөн guild-д байгаа хэрэглэгчдийг нэмэх
+                    users.append((user_id, balance))
             
         return users, total_count
 
@@ -388,8 +396,13 @@ class Economy(commands.Cog):
         for i, (user_id, balance) in enumerate(users):
             rank = start_rank + i
             user = guild.get_member(user_id)
-            name = user.mention if user else f"<@{user_id}>"
-            desc += f"**{rank}.** {name} — `{balance:,}₮`\n"
+            # Зөвхөн guild-д байгаа хэрэглэгчдийг харуулах
+            if user is not None:
+                desc += f"**{rank}.** {user.mention} — `{balance:,}₮`\n"
+            
+        # Хэрэв хоосон байвал
+        if not desc:
+            desc = "Одоогоор топ хэрэглэгч байхгүй байна."
             
         embed = discord.Embed(
             title=f"📊 {guild.name} - {table_name} Топ",
